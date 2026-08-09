@@ -3,7 +3,9 @@ package ksu.chat;
 import com.google.gson.JsonParser;
 import com.mojang.authlib.GameProfile;
 import com.mojang.logging.LogUtils;
+import net.minecraft.ChatFormatting;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.players.UserBanListEntry;
@@ -27,6 +29,8 @@ import javax.net.ssl.SSLContext;
 import javax.net.ssl.TrustManager;
 import javax.net.ssl.X509TrustManager;
 import java.security.cert.X509Certificate;
+
+import static ksu.chat.KsuChatMod.MODID;
 
 public class TelegramBot {
     private static final Logger LOGGER = LogUtils.getLogger();
@@ -263,7 +267,13 @@ public class TelegramBot {
                         ksu.chat.net.ChatMessagePayload chatMsg = new ksu.chat.net.ChatMessagePayload(
                                 "[ТГ] " + senderName, finalText, (byte) 1, "", null);
                         for (ServerPlayer p : srv.getPlayerList().getPlayers()) {
-                            p.connection.send(chatMsg);
+                            if (p.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
+                                p.connection.send(chatMsg);
+                            } else {
+                                p.sendSystemMessage(Component.literal(
+                                        "<[ТГ] " + senderName + "> " + finalText
+                                ));
+                            }
                         }
                     });
                 }
@@ -283,13 +293,26 @@ public class TelegramBot {
                     ksu.chat.net.ChatMessagePayload chatMsg = new ksu.chat.net.ChatMessagePayload(
                             "[ТГ] " + senderName, photoText, (byte) 1, "", "/ksu_photo " + photoId);
                     for (ServerPlayer p : srv.getPlayerList().getPlayers()) {
-                        p.connection.send(chatMsg);
+                        if (p.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
+                            p.connection.send(chatMsg);
+                        } else {
+                            p.sendSystemMessage(
+                                    Component.literal("<[ТГ] " + senderName + "> " + "[Фото, для просмотра нужен мод]")
+                                            .withStyle(s -> s.withColor(ChatFormatting.GREEN))
+                            );
+                        }
                     }
                 } else {
                     ksu.chat.net.ChatMessagePayload chatMsg = new ksu.chat.net.ChatMessagePayload(
                             "[ТГ] " + senderName, "[Фото не загружено]", (byte) 1, "", null);
                     for (ServerPlayer p : srv.getPlayerList().getPlayers()) {
-                        p.connection.send(chatMsg);
+                        if (p.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
+                            p.connection.send(chatMsg);
+                        } else {
+                            p.sendSystemMessage(Component.literal(
+                                    "<[ТГ] " + senderName + "> " + "[Фото не загружено]"
+                            ));
+                        }
                     }
                 }
             });
@@ -308,13 +331,25 @@ public class TelegramBot {
                     ksu.chat.net.ChatMessagePayload chatMsg = new ksu.chat.net.ChatMessagePayload(
                             "[ТГ] " + senderName, photoText, (byte) 1, "", "/ksu_photo " + photoId);
                     for (ServerPlayer p : srv.getPlayerList().getPlayers()) {
-                        p.connection.send(chatMsg);
+                        if (p.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
+                            p.connection.send(chatMsg);
+                        } else {
+                            p.sendSystemMessage(Component.literal("<[ТГ] " + senderName + "> " + "[Фото, для просмотра нужен мод]")
+                                    .withStyle(s -> s.withColor(ChatFormatting.GREEN))
+                            );
+                        }
                     }
                 } else {
                     ksu.chat.net.ChatMessagePayload chatMsg = new ksu.chat.net.ChatMessagePayload(
                             "[ТГ] " + senderName, "[Фото не загружено]", (byte) 1, "", null);
                     for (ServerPlayer p : srv.getPlayerList().getPlayers()) {
-                        p.connection.send(chatMsg);
+                        if (p.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
+                            p.connection.send(chatMsg);
+                        } else {
+                            p.sendSystemMessage(Component.literal(
+                                    "<[ТГ] " + senderName + "> " + "[Фото не загружено]"
+                            ));
+                        }
                     }
                 }
             });
@@ -327,7 +362,13 @@ public class TelegramBot {
                 ksu.chat.net.ChatMessagePayload chatMsg = new ksu.chat.net.ChatMessagePayload(
                         "[ТГ] " + senderName, finalText, (byte) 1, "", null);
                 for (ServerPlayer p : srv.getPlayerList().getPlayers()) {
-                    p.connection.send(chatMsg);
+                    if (p.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
+                        p.connection.send(chatMsg);
+                    } else {
+                        p.sendSystemMessage(Component.literal(
+                                "<[ТГ] " + senderName + "> " + finalText
+                        ));
+                    }
                 }
             });
             LOGGER.info("[KsuChat] ТГ->МК сообщение от {}: {}", senderName, text);
@@ -411,7 +452,7 @@ public class TelegramBot {
             sendMessage("Нет игроков на сервере.");
             return;
         }
-        StringBuilder sb = new StringBuilder("<b>Игроки онлайн (" + players.size() + "):</b>\n");
+        StringBuilder sb = new StringBuilder("Игроки онлайн (" + players.size() + "):\n");
         for (ServerPlayer p : players) {
             sb.append("  - ").append(p.getName().getString()).append("\n");
         }

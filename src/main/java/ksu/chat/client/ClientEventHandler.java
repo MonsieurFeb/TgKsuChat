@@ -5,10 +5,13 @@ import ksu.chat.net.ChatSendPayload;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.screens.ChatScreen;
 import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.resources.ResourceLocation;
 import net.neoforged.bus.api.SubscribeEvent;
 import net.neoforged.neoforge.client.event.ClientChatEvent;
 import net.neoforged.neoforge.client.event.InputEvent;
 import net.neoforged.neoforge.client.event.ScreenEvent;
+
+import static ksu.chat.KsuChatMod.MODID;
 
 public class ClientEventHandler {
 
@@ -38,6 +41,8 @@ public class ClientEventHandler {
         Minecraft mc = Minecraft.getInstance();
         if (mc.player == null) return;
         event.setCanceled(true);
-        mc.player.connection.send(new ChatSendPayload(message, ChatChannel.GLOBAL.id, null));
+        if (mc.player.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
+            mc.player.connection.send(new ChatSendPayload(message, ChatChannel.GLOBAL.id, null));
+        }
     }
 }

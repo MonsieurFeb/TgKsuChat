@@ -6,6 +6,7 @@ import ksu.chat.chat.ChatManager;
 import ksu.chat.net.ChatMessagePayload;
 import net.minecraft.advancements.AdvancementHolder;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.bus.api.EventPriority;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -16,6 +17,8 @@ import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import org.slf4j.Logger;
 
 import java.util.List;
+
+import static ksu.chat.KsuChatMod.MODID;
 
 public class EventHandler {
     private static final Logger LOGGER = LogUtils.getLogger();
@@ -46,7 +49,11 @@ public class EventHandler {
         ChatMessagePayload out = new ChatMessagePayload(playerName, message, channel.id, groupName, null);
         List<ServerPlayer> recipients = chatManager.getRecipients(player, channel, groupName);
         for (ServerPlayer p : recipients) {
-            p.connection.send(out);
+            if (p.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
+                p.connection.send(out);
+            } else {
+                p.sendSystemMessage(Component.literal("<" + playerName + "> " + message));
+            }
         }
 
         LOGGER.info("[KsuChat] [{}] {}: {}", channel, playerName, message);
@@ -104,11 +111,11 @@ public class EventHandler {
             if (!config.isForwardDeaths()) return;
             if (!(event.getEntity() instanceof ServerPlayer player)) return;
 
-            String playerName = player.getName().getString();
+            // String playerName = player.getName().getString();
             Component deathMessage = player.getCombatTracker().getDeathMessage();
             String deathText = deathMessage.getString();
 
-            String formatted = String.format(config.getDeathFormat(), playerName, deathText);
+            String formatted = String.format(config.getDeathFormat(), deathText);
             bot.sendMessage(formatted);
             LOGGER.info("[KsuChat] Смерть игрока: {}", formatted);
         } catch (Exception e) {

@@ -10,9 +10,12 @@ import net.minecraft.client.gui.components.CommandSuggestions;
 import net.minecraft.client.gui.components.EditBox;
 import net.minecraft.client.gui.screens.Screen;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import org.slf4j.Logger;
 
 import java.util.*;
+
+import static ksu.chat.KsuChatMod.MODID;
 
 public class KsuChatScreen extends Screen {
     private static final Logger LOGGER = LogUtils.getLogger();
@@ -107,11 +110,15 @@ public class KsuChatScreen extends Screen {
     private void syncChannelToServer() {
         ChatTab active = tabs.get(activeTabIndex);
         if (active.channel != null && Minecraft.getInstance().player != null) {
-            Minecraft.getInstance().player.connection.send(
-                    new SetActiveChannelPayload(active.channel.id, active.groupName));
+            if (Minecraft.getInstance().player.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
+                Minecraft.getInstance().player.connection.send(
+                        new SetActiveChannelPayload(active.channel.id, active.groupName));
+            }
         } else if (active.channel == null && selectedGroup != null && Minecraft.getInstance().player != null) {
-            Minecraft.getInstance().player.connection.send(
-                    new SetActiveChannelPayload((byte) 2, selectedGroup));
+            if (Minecraft.getInstance().player.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
+                Minecraft.getInstance().player.connection.send(
+                        new SetActiveChannelPayload((byte) 2, selectedGroup));
+            }
         }
     }
 
@@ -463,15 +470,19 @@ public class KsuChatScreen extends Screen {
                     int leaveBtnSize = 16;
                     if (mouseX >= groupLeaveBtnX && mouseX <= groupLeaveBtnX + leaveBtnSize
                             && mouseY >= groupLeaveBtnY && mouseY <= groupLeaveBtnY + leaveBtnSize) {
-                        Minecraft.getInstance().player.connection.send(
-                                new GroupActionPayload("leave", selectedGroup, null));
+                        if (Minecraft.getInstance().player.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
+                            Minecraft.getInstance().player.connection.send(
+                                    new GroupActionPayload("leave", selectedGroup, null));
+                        }
                         groupFeedback = "Вышли из " + selectedGroup;
                         feedbackTimer = 100;
                         selectedGroup = null;
                         scrollOffset = 0;
                         syncChannelToServer();
-                        Minecraft.getInstance().player.connection.send(
-                                new GroupActionPayload("list", null, null));
+                        if (Minecraft.getInstance().player.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
+                            Minecraft.getInstance().player.connection.send(
+                                    new GroupActionPayload("list", null, null));
+                        }
                         return true;
                     }
                     return super.mouseClicked(mouseX, mouseY, button);
@@ -511,14 +522,18 @@ public class KsuChatScreen extends Screen {
             feedbackTimer = 100;
             return;
         }
-        Minecraft.getInstance().player.connection.send(
-                new GroupActionPayload("create", name, pass));
+        if (Minecraft.getInstance().player.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
+            Minecraft.getInstance().player.connection.send(
+                    new GroupActionPayload("create", name, pass));
+        }
         groupFeedback = "Группа " + name + " создана!";
         feedbackTimer = 100;
         if (groupNameBox != null) groupNameBox.setValue("");
         if (groupPassBox != null) groupPassBox.setValue("");
-        Minecraft.getInstance().player.connection.send(
-                new GroupActionPayload("list", null, null));
+        if (Minecraft.getInstance().player.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
+            Minecraft.getInstance().player.connection.send(
+                    new GroupActionPayload("list", null, null));
+        }
     }
 
     private void submitJoinGroup() {
@@ -529,14 +544,18 @@ public class KsuChatScreen extends Screen {
             feedbackTimer = 100;
             return;
         }
-        Minecraft.getInstance().player.connection.send(
-                new GroupActionPayload("join", name, pass));
+        if (Minecraft.getInstance().player.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
+            Minecraft.getInstance().player.connection.send(
+                    new GroupActionPayload("join", name, pass));
+        }
         groupFeedback = "Вступаем в " + name + "...";
         feedbackTimer = 100;
         if (groupNameBox != null) groupNameBox.setValue("");
         if (groupPassBox != null) groupPassBox.setValue("");
-        Minecraft.getInstance().player.connection.send(
-                new GroupActionPayload("list", null, null));
+        if (Minecraft.getInstance().player.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
+            Minecraft.getInstance().player.connection.send(
+                    new GroupActionPayload("list", null, null));
+        }
     }
 
     private void submitGroupAction() {
@@ -563,7 +582,9 @@ public class KsuChatScreen extends Screen {
         if (text.isEmpty()) return;
 
         if (text.startsWith("/")) {
-            Minecraft.getInstance().player.connection.sendCommand(text.substring(1));
+            if (Minecraft.getInstance().player.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
+                Minecraft.getInstance().player.connection.sendCommand(text.substring(1));
+            }
             inputBox.setValue("");
             return;
         }
@@ -571,17 +592,25 @@ public class KsuChatScreen extends Screen {
         ChatTab active = tabs.get(activeTabIndex);
 
         if (active.channel == ChatChannel.GLOBAL) {
-            Minecraft.getInstance().player.connection.send(
-                    new ChatSendPayload(text, active.channel.id, null));
+            if (Minecraft.getInstance().player.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
+                Minecraft.getInstance().player.connection.send(
+                        new ChatSendPayload(text, active.channel.id, null));
+            }
         } else if (active.channel == ChatChannel.LOCAL) {
-            Minecraft.getInstance().player.connection.send(
-                    new ChatSendPayload(text, active.channel.id, null));
+            if (Minecraft.getInstance().player.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
+                Minecraft.getInstance().player.connection.send(
+                        new ChatSendPayload(text, active.channel.id, null));
+            }
         } else if (active.channel == null && selectedGroup != null) {
-            Minecraft.getInstance().player.connection.send(
-                    new ChatSendPayload(text, (byte) 2, selectedGroup));
+            if (Minecraft.getInstance().player.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
+                Minecraft.getInstance().player.connection.send(
+                        new ChatSendPayload(text, (byte) 2, selectedGroup));
+            }
         } else {
             return;
         }
+//        Minecraft.getInstance().player.connection.send(
+//                new ChatSendPayload(text, (byte) 1, selectedGroup));
 
         inputBox.setValue("");
         inputBox.setFocused(true);

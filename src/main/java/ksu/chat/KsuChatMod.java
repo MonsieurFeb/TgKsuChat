@@ -7,6 +7,7 @@ import ksu.chat.chat.ChatChannel;
 import ksu.chat.chat.ChatManager;
 import ksu.chat.chat.GroupManager;
 import ksu.chat.net.*;
+import net.minecraft.ChatFormatting;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
@@ -59,8 +60,9 @@ public class KsuChatMod {
 
     private void onRegisterPayloads(RegisterPayloadHandlersEvent event) {
         PayloadRegistrar registrar = event.registrar(MODID);
+        PayloadRegistrar optionalRegistrar = registrar.optional();
 
-        registrar.playToClient(PhotoPayload.TYPE, PhotoPayload.CODEC, (payload, ctx) -> {
+        optionalRegistrar.playToClient(PhotoPayload.TYPE, PhotoPayload.CODEC, (payload, ctx) -> {
             ctx.enqueueWork(() -> {
                 if (FMLEnvironment.dist == net.neoforged.api.distmarker.Dist.CLIENT) {
                     try {
@@ -92,7 +94,7 @@ public class KsuChatMod {
             });
         });
 
-        registrar.playToClient(ChatMessagePayload.TYPE, ChatMessagePayload.CODEC, (payload, ctx) -> {
+        optionalRegistrar.playToClient(ChatMessagePayload.TYPE, ChatMessagePayload.CODEC, (payload, ctx) -> {
             ctx.enqueueWork(() -> {
                 if (FMLEnvironment.dist == net.neoforged.api.distmarker.Dist.CLIENT) {
                     handleClientChatMessage(payload);
@@ -100,7 +102,7 @@ public class KsuChatMod {
             });
         });
 
-        registrar.playToClient(SyncGroupsPayload.TYPE, SyncGroupsPayload.CODEC, (payload, ctx) -> {
+        optionalRegistrar.playToClient(SyncGroupsPayload.TYPE, SyncGroupsPayload.CODEC, (payload, ctx) -> {
             ctx.enqueueWork(() -> {
                 if (FMLEnvironment.dist == net.neoforged.api.distmarker.Dist.CLIENT) {
                     try {
@@ -114,21 +116,21 @@ public class KsuChatMod {
             });
         });
 
-        registrar.playToServer(ChatSendPayload.TYPE, ChatSendPayload.CODEC, (payload, ctx) -> {
+        optionalRegistrar.playToServer(ChatSendPayload.TYPE, ChatSendPayload.CODEC, (payload, ctx) -> {
             if (!(ctx.player() instanceof ServerPlayer player)) return;
             ctx.enqueueWork(() -> handleServerChatMessage(player, payload));
         });
 
-        registrar.playToServer(SetActiveChannelPayload.TYPE, SetActiveChannelPayload.CODEC, (payload, ctx) -> {
+        optionalRegistrar.playToServer(SetActiveChannelPayload.TYPE, SetActiveChannelPayload.CODEC, (payload, ctx) -> {
             if (!(ctx.player() instanceof ServerPlayer player)) return;
             ctx.enqueueWork(() -> {
                 //ChatChannel channel = ChatChannel.fromId(payload.channelId());
                 ChatChannel channel = ChatChannel.GLOBAL;
                 getChatManager().setActiveChannel(player.getUUID(), channel, payload.groupName());
             });
-        });
+        }); //
 
-        registrar.playToServer(GroupActionPayload.TYPE, GroupActionPayload.CODEC, (payload, ctx) -> {
+        optionalRegistrar.playToServer(GroupActionPayload.TYPE, GroupActionPayload.CODEC, (payload, ctx) -> {
             if (!(ctx.player() instanceof ServerPlayer player)) return;
             ctx.enqueueWork(() -> handleGroupAction(player, payload));
         });
@@ -138,22 +140,22 @@ public class KsuChatMod {
         try {
             //ChatChannel channel = ChatChannel.fromId(payload.channelId());
             ChatChannel channel = ChatChannel.GLOBAL;
-            String tabName;
-            net.minecraft.ChatFormatting color;
-            switch (channel) {
-                case GLOBAL -> {
-                    tabName = "Глобальный";
-                    color = net.minecraft.ChatFormatting.GREEN;
-                }
-                case GROUP -> {
-                    tabName = payload.groupName();
-                    color = net.minecraft.ChatFormatting.AQUA;
-                }
-                default -> {
-                    tabName = "Локальный";
-                    color = net.minecraft.ChatFormatting.WHITE;
-                }
-            }
+            String tabName = "";
+            net.minecraft.ChatFormatting color  = net.minecraft.ChatFormatting.WHITE;
+//            switch (channel) {
+//                case GLOBAL -> {
+//                    tabName = "Глобальный";
+//                    color = net.minecraft.ChatFormatting.GREEN;
+//                }
+//                case GROUP -> {
+//                    tabName = payload.groupName();
+//                    color = net.minecraft.ChatFormatting.AQUA;
+//                }
+//                default -> {
+//                    tabName = "Локальный";
+//                    color = net.minecraft.ChatFormatting.WHITE;
+//                }
+//            }
             if (FMLEnvironment.dist == net.neoforged.api.distmarker.Dist.CLIENT) {
                 try {
                     Class<?> screenClass = Class.forName("ksu.chat.client.KsuChatScreen");
@@ -163,17 +165,18 @@ public class KsuChatMod {
                     LOGGER.error("[KsuChat] Не удалось добавить сообщение в чат клиента", e);
                 }
                 try {
-                    String prefix = switch (channel) {
-                        case GLOBAL -> "§a[Глобальный] §r";
-                        case GROUP -> "§b[Группа " + payload.groupName() + "] §r";
-                        default -> "§7[Локальный] §r";
-                    };
+                    String prefix = "";
+//                            switch (channel) {
+//                        case GLOBAL -> "§a[Глобальный] §r";
+//                        case GROUP -> "§b[Группа " + payload.groupName() + "] §r";
+//                        default -> "§7[Локальный] §r";
+//                    };
                     net.minecraft.network.chat.Component chatMsg = net.minecraft.network.chat.Component.literal(prefix)
                             .append(net.minecraft.network.chat.Component.literal("<" + payload.sender() + "> "));
                     if (payload.clickCommand() != null && !payload.clickCommand().isEmpty()) {
                         chatMsg = chatMsg.copy().append(
                                 net.minecraft.network.chat.Component.literal("[Фото]")
-                                        .withStyle(s -> s.withColor(net.minecraft.ChatFormatting.YELLOW)
+                                        .withStyle(s -> s.withColor(ChatFormatting.GREEN)
                                                 .withClickEvent(new net.minecraft.network.chat.ClickEvent(
                                                         net.minecraft.network.chat.ClickEvent.Action.RUN_COMMAND,
                                                         payload.clickCommand()))));
@@ -222,7 +225,9 @@ public class KsuChatMod {
         ChatMessagePayload out = new ChatMessagePayload(senderName, message, channel.id, groupName, null);
         var recipients = getChatManager().getRecipients(sender, channel, groupName);
         for (ServerPlayer p : recipients) {
-            p.connection.send(out);
+            if (p.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
+                p.connection.send(out);
+            }
         }
 
         LOGGER.info("[KsuChat] [{}] {}: {}", channel, senderName, message);
@@ -292,7 +297,11 @@ public class KsuChatMod {
         var allGroups = getGroupManager().getAllGroups().stream()
                 .map(g -> g.name).toList();
         var myGroups = getGroupManager().getPlayerGroups(player.getUUID());
-        player.connection.send(new SyncGroupsPayload(allGroups, myGroups));
+
+        if (player.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
+            PacketDistributor.sendToPlayer(player, new SyncGroupsPayload(allGroups, myGroups));
+        }
+        //player.connection.send(new SyncGroupsPayload(allGroups, myGroups));
     }
 
     @SubscribeEvent
@@ -333,7 +342,10 @@ public class KsuChatMod {
                         for (int i = 0; i < total; i++) {
                             int from = i * PHOTO_CHUNK_SIZE;
                             int to = Math.min(data.length, from + PHOTO_CHUNK_SIZE);
-                            player.connection.send(new PhotoPayload(id, i, total, java.util.Arrays.copyOfRange(data, from, to)));
+                            if (player.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
+                                PacketDistributor.sendToPlayer(player, new PhotoPayload(id, i, total, java.util.Arrays.copyOfRange(data, from, to)));
+                            }
+                            //player.connection.send(new PhotoPayload(id, i, total, java.util.Arrays.copyOfRange(data, from, to)));
                         }
                         ctx.getSource().sendSuccess(() -> Component.literal("Открываю фото..."), false);
                     } else {

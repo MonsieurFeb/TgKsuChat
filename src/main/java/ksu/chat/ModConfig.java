@@ -26,14 +26,14 @@ public class ModConfig {
     private List<Long> telegramAdmins = new ArrayList<>();
 
     private boolean forwardChat = true;
-    private String chatFormat = "[Чат] <%s> %s";
+    private String chatFormat = "<%s> %s";
 
     private boolean forwardJoinLeave = true;
     private String joinFormat = "[+] %s зашёл на сервер";
     private String leaveFormat = "[-] %s вышел с сервера";
 
     private boolean forwardDeaths = true;
-    private String deathFormat = "[Смерть] %s %s";
+    private String deathFormat = "[Смерть] %s";
 
     private boolean forwardAdvancements = true;
     private String advancementFormat = "[Достижение] %s получил достижение [%s]";
@@ -169,7 +169,7 @@ public class ModConfig {
 
                 # ---- Сообщения чата ----
                 forwardChat = true
-                chatFormat = "[Чат] <%s> %s"
+                chatFormat = "<%s> %s"
 
                 # ---- Вход/Выход ----
                 forwardJoinLeave = true
@@ -178,7 +178,7 @@ public class ModConfig {
 
                 # ---- Смерти ----
                 forwardDeaths = true
-                deathFormat = "[Смерть] %s %s"
+                deathFormat = "[Смерть] %s"
 
                 # ---- Достижения ----
                 forwardAdvancements = true
