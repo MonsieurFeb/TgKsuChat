@@ -30,6 +30,7 @@ import java.nio.file.Path;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
 @Mod(KsuChatMod.MODID)
@@ -39,8 +40,22 @@ public class KsuChatMod {
 
     private static TelegramBot telegramBot;
     private static ModConfig config;
-    private static final Map<UUID, byte[]> photoCache = new ConcurrentHashMap<>();
-    private static final Map<UUID, byte[][]> photoChunks = new ConcurrentHashMap<>();
+    private static final Cache<UUID, byte[]> photoCache = CacheBuilder.newBuilder()
+            .maximumSize(100)                                   // Максимум 100 фото в кэше
+            .expireAfterWrite(5, TimeUnit.MINUTES)      // Удалить через 5 минут после сохранения
+            .expireAfterAccess(2, TimeUnit.MINUTES)     // Удалить через 2 минуты без доступа
+            .removalListener(notification -> {
+                LOGGER.debug("Фото удалено из кэша: {}", notification.getKey());
+            })
+            .build();
+    private static final Cache<UUID, byte[][]> photoChunks = CacheBuilder.newBuilder()
+            .maximumSize(100)
+            .expireAfterWrite(5, TimeUnit.MINUTES)
+            .expireAfterAccess(2, TimeUnit.MINUTES)
+            .removalListener(notification -> {
+                LOGGER.debug("Чанки фото удалены из кэша: {}", notification.getKey());
+            })
+            .build();
     private static final int PHOTO_CHUNK_SIZE = 262144;
     private static ChatManager chatManager;
     private static GroupManager groupManager;
@@ -66,14 +81,20 @@ public class KsuChatMod {
             ctx.enqueueWork(() -> {
                 if (FMLEnvironment.dist == net.neoforged.api.distmarker.Dist.CLIENT) {
                     try {
-                        byte[][] chunks = photoChunks.computeIfAbsent(payload.id(), k -> new byte[payload.total()][]);
+                        byte[][] chunks;
+                        try {
+                            chunks = photoChunks.get(payload.id(), () -> new byte[payload.total()][]);
+                        } catch (ExecutionException e) {
+                            LOGGER.error("Ошибка получения чанков для фото: {}", payload.id(), e);
+                            return;
+                        }
                         chunks[payload.index()] = payload.data();
                         for (byte[] c : chunks) {
                             if (c == null) {
                                 return;
                             }
                         }
-                        photoChunks.remove(payload.id());
+                        photoChunks.invalidate(payload.id());
                         int size = 0;
                         for (byte[] c : chunks) {
                             size += c.length;
@@ -335,7 +356,7 @@ public class KsuChatMod {
         event.getDispatcher().register(Commands.literal("ksu_photo").then(
                 Commands.argument("id", net.minecraft.commands.arguments.UuidArgument.uuid()).executes(ctx -> {
                     UUID id = net.minecraft.commands.arguments.UuidArgument.getUuid(ctx, "id");
-                    byte[] data = photoCache.get(id);
+                    byte[] data = photoCache.getIfPresent(id);
                     if (data != null) {
                         var player = ctx.getSource().getPlayerOrException();
                         int total = Math.max(1, (data.length + PHOTO_CHUNK_SIZE - 1) / PHOTO_CHUNK_SIZE);
