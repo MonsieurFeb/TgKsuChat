@@ -178,7 +178,7 @@ public class TelegramBot {
                 com.google.gson.JsonObject json = JsonParser.parseString(response.body()).getAsJsonObject();
                 if (json.get("ok").getAsBoolean()) {
                     com.google.gson.JsonArray results = json.getAsJsonArray("result");
-                    if (results.size() > 0) {
+                    if (!results.isEmpty()) {
                         LOGGER.info("[KsuChat] Получено {} обновлений", results.size());
                     }
                     for (var elem : results) {
@@ -229,6 +229,7 @@ public class TelegramBot {
         }
 
         String text = message.has("text") ? message.get("text").getAsString() : null;
+        String caption = message.has("caption") ? message.get("caption").getAsString() : null;
         boolean hasPhoto = message.has("photo");
         boolean hasDocument = message.has("document");
 
@@ -240,11 +241,11 @@ public class TelegramBot {
             String cmd = parts[0].toLowerCase();
             switch (cmd) {
                 case "/players" -> handlePlayers();
-                case "/stop" -> handleStop(userId, senderName);
+//                case "/stop" -> handleStop(userId, senderName);
                 case "/kick" -> handleKick(userId, senderName, parts);
-                case "/restart" -> handleRestart(userId, senderName);
-                case "/ban" -> handleBan(userId, senderName, parts);
-                case "/unban" -> handleUnban(userId, senderName, parts);
+//                case "/restart" -> handleRestart(userId, senderName);
+//                case "/ban" -> handleBan(userId, senderName, parts);
+//                case "/unban" -> handleUnban(userId, senderName, parts);
                 case "/zwl" -> handleWhitelist(userId, senderName, parts);
                 case "/myid" -> handleMyId(userId, senderName);
                 case "/start", "/help" -> handleHelp();
@@ -262,17 +263,18 @@ public class TelegramBot {
             boolean isImage = mimeType.startsWith("image/");
             if (!isImage) {
                 if (text != null && !text.isEmpty()) {
-                    String finalText = text;
                     srv.execute(() -> {
                         ksu.chat.net.ChatMessagePayload chatMsg = new ksu.chat.net.ChatMessagePayload(
-                                "[ТГ] " + senderName, finalText, (byte) 1, "", null);
+                                "[ТГ] " + senderName, text, (byte) 1, "", null);
                         for (ServerPlayer p : srv.getPlayerList().getPlayers()) {
                             if (p.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
                                 p.connection.send(chatMsg);
                             } else {
-                                p.sendSystemMessage(Component.literal(
-                                        "<[ТГ] " + senderName + "> " + finalText
-                                ));
+                                p.sendSystemMessage(Component.literal("<")
+                                        .append(Component.literal("[ТГ] ").withStyle(s -> s.withColor(ChatFormatting.BLUE)))
+                                        .append(Component.literal(senderName + "> "))
+                                        .append(Component.literal(text))
+                                );
                             }
                         }
                     });
@@ -284,34 +286,41 @@ public class TelegramBot {
                     doc.has("file_name") ? doc.get("file_name").getAsString() : "?");
             byte[] photoBytes = downloadDocumentFile(doc);
             LOGGER.info("[KsuChat] ТГ->МК документ-фото от {}: байтов={}", senderName, photoBytes != null ? photoBytes.length : 0);
-            String caption = text != null ? text : "";
-            String finalCaption2 = caption;
             srv.execute(() -> {
+                String finalText = "";
+                if (caption != null && !caption.isEmpty()) {
+                    finalText = caption;
+                }
                 if (photoBytes != null) {
                     java.util.UUID photoId = KsuChatMod.cachePhoto(photoBytes);
-                    String photoText = "[Фото HD] " + finalCaption2;
+                    String photoText = "[Фото HD] " + finalText;
                     ksu.chat.net.ChatMessagePayload chatMsg = new ksu.chat.net.ChatMessagePayload(
                             "[ТГ] " + senderName, photoText, (byte) 1, "", "/ksu_photo " + photoId);
                     for (ServerPlayer p : srv.getPlayerList().getPlayers()) {
                         if (p.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
                             p.connection.send(chatMsg);
                         } else {
-                            p.sendSystemMessage(
-                                    Component.literal("<[ТГ] " + senderName + "> " + "[Фото, для просмотра нужен мод]")
-                                            .withStyle(s -> s.withColor(ChatFormatting.GREEN))
+                            p.sendSystemMessage(Component.literal("<")
+                                    .append(Component.literal("[ТГ] ").withStyle(s -> s.withColor(ChatFormatting.BLUE)))
+                                    .append(Component.literal(senderName + "> "))
+                                    .append(Component.literal("[Фото, для просмотра нужен мод] ").withStyle(s -> s.withColor(ChatFormatting.GREEN)))
+                                    .append(Component.literal(finalText))
                             );
                         }
                     }
                 } else {
                     ksu.chat.net.ChatMessagePayload chatMsg = new ksu.chat.net.ChatMessagePayload(
-                            "[ТГ] " + senderName, "[Фото не загружено]", (byte) 1, "", null);
+                            "[ТГ] " + senderName, "[Фото не загружено] " + finalText, (byte) 1, "", null);
                     for (ServerPlayer p : srv.getPlayerList().getPlayers()) {
                         if (p.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
                             p.connection.send(chatMsg);
                         } else {
-                            p.sendSystemMessage(Component.literal(
-                                    "<[ТГ] " + senderName + "> " + "[Фото не загружено]"
-                            ));
+                            p.sendSystemMessage(Component.literal("<")
+                                    .append(Component.literal("[ТГ] ").withStyle(s -> s.withColor(ChatFormatting.BLUE)))
+                                    .append(Component.literal(senderName + "> "))
+                                    .append(Component.literal("[Фото не загружено] ").withStyle(s -> s.withColor(ChatFormatting.GREEN)))
+                                    .append(Component.literal(finalText))
+                            );
                         }
                     }
                 }
@@ -320,35 +329,43 @@ public class TelegramBot {
         }
 
         if (hasPhoto) {
-            String caption = text != null ? text : "";
             byte[] photoBytes = downloadPhoto(message);
             LOGGER.info("[KsuChat] ТГ->МК фото от {}: байтов={}", senderName, photoBytes != null ? photoBytes.length : 0);
-            String finalCaption = caption;
             srv.execute(() -> {
+                String finalText = "";
+                if (caption != null && !caption.isEmpty()) {
+                    finalText = caption;
+                }
                 if (photoBytes != null) {
                     java.util.UUID photoId = KsuChatMod.cachePhoto(photoBytes);
-                    String photoText = "[Фото] " + finalCaption;
+                    String photoText = "[Фото] " + finalText;
                     ksu.chat.net.ChatMessagePayload chatMsg = new ksu.chat.net.ChatMessagePayload(
                             "[ТГ] " + senderName, photoText, (byte) 1, "", "/ksu_photo " + photoId);
                     for (ServerPlayer p : srv.getPlayerList().getPlayers()) {
                         if (p.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
                             p.connection.send(chatMsg);
                         } else {
-                            p.sendSystemMessage(Component.literal("<[ТГ] " + senderName + "> " + "[Фото, для просмотра нужен мод]")
-                                    .withStyle(s -> s.withColor(ChatFormatting.GREEN))
+                            p.sendSystemMessage(Component.literal("<")
+                                    .append(Component.literal("[ТГ] ").withStyle(s -> s.withColor(ChatFormatting.BLUE)))
+                                    .append(Component.literal(senderName + "> "))
+                                    .append(Component.literal("[Фото, для просмотра нужен мод] ").withStyle(s -> s.withColor(ChatFormatting.GREEN)))
+                                    .append(Component.literal(finalText))
                             );
                         }
                     }
                 } else {
                     ksu.chat.net.ChatMessagePayload chatMsg = new ksu.chat.net.ChatMessagePayload(
-                            "[ТГ] " + senderName, "[Фото не загружено]", (byte) 1, "", null);
+                            "[ТГ] " + senderName, "[Фото не загружено] " + finalText, (byte) 1, "", null);
                     for (ServerPlayer p : srv.getPlayerList().getPlayers()) {
                         if (p.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
                             p.connection.send(chatMsg);
                         } else {
-                            p.sendSystemMessage(Component.literal(
-                                    "<[ТГ] " + senderName + "> " + "[Фото не загружено]"
-                            ));
+                            p.sendSystemMessage(Component.literal("<")
+                                    .append(Component.literal("[ТГ] ").withStyle(s -> s.withColor(ChatFormatting.BLUE)))
+                                    .append(Component.literal(senderName + "> "))
+                                    .append(Component.literal("[Фото не загружено] ").withStyle(s -> s.withColor(ChatFormatting.GREEN)))
+                                    .append(Component.literal(finalText))
+                                    );
                         }
                     }
                 }
@@ -356,18 +373,19 @@ public class TelegramBot {
             return;
         }
 
-        if (text != null && !text.isEmpty()) {
-            String finalText = text;
+        if (!text.isEmpty()) {
             srv.execute(() -> {
                 ksu.chat.net.ChatMessagePayload chatMsg = new ksu.chat.net.ChatMessagePayload(
-                        "[ТГ] " + senderName, finalText, (byte) 1, "", null);
+                        "[ТГ] " + senderName, text, (byte) 1, "", null);
                 for (ServerPlayer p : srv.getPlayerList().getPlayers()) {
                     if (p.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
                         p.connection.send(chatMsg);
                     } else {
-                        p.sendSystemMessage(Component.literal(
-                                "<[ТГ] " + senderName + "> " + finalText
-                        ));
+                        p.sendSystemMessage(Component.literal("<")
+                                .append(Component.literal("[ТГ] ").withStyle(s -> s.withColor(ChatFormatting.BLUE)))
+                                .append(Component.literal(senderName + "> "))
+                                .append(Component.literal(text))
+                        );
                     }
                 }
             });
@@ -470,7 +488,7 @@ public class TelegramBot {
             return;
         }
         sendMessage("Сервер выключается @" + username + "...");
-        executor.execute(() -> srv.execute(() -> srv.close()));
+        executor.execute(() -> srv.execute(srv::close));
     }
 
     private void handleRestart(long userId, String username) {
@@ -536,9 +554,7 @@ public class TelegramBot {
                     sendMessage("Игрок " + target + " не найден на сервере. Невозможно забанить.");
                     return;
                 }
-                if (player != null) {
-                    player.connection.disconnect(Component.literal("Забанен админом из Telegram"));
-                }
+                player.connection.disconnect(Component.literal("Забанен админом из Telegram"));
                 srv.getPlayerList().getBans().add(new UserBanListEntry(profile, null, "Telegram", null, "Забанен @" + username));
                 sendMessage("Игрок " + target + " забанен @" + username);
             } catch (Exception e) {
@@ -651,21 +667,21 @@ public class TelegramBot {
 
     private void handleHelp() {
         sendMessage("""
-                <b>KsuChat Команды:</b>
+            KsuChat Команды:
 
-                /myid - Показать ваш Telegram ID (для настройки)
-                /players - Список игроков онлайн
-                /stop - Остановить сервер (админ)
-                /kick &lt;ник&gt; - Кикнуть игрока (админ)
-                /restart - Перезагрузить сервер (админ)
-                /ban &lt;ник&gt; - Забанить игрока (админ)
-                /unban &lt;ник&gt; - Разбанить игрока (админ)
-                /zwl add &lt;ник&gt; - Добавить в вайтлист (админ)
-                /zwl remove &lt;ник&gt; - Убрать из вайтлиста (админ)
-                /help - Показать эту справку
+            /help - Показать эту справку
+            /myid - Показать ваш Telegram ID (для настройки)
+            /players - Список игроков онлайн
+            /kick *ник* - Кикнуть игрока (админ)
+            /zwl add *ник* - Добавить в вайтлист (админ)
+            /zwl remove *ник* - Убрать из вайтлиста (админ)
 
-                Фото: отправляйте как файл для качества без сжатия!
-                """);
+            Фото: отправляйте как файл для качества без сжатия!
+            """);
+//            /stop - Остановить сервер (админ)
+//            /restart - Перезагрузить сервер (админ)
+//            /ban *ник* - Забанить игрока (админ)
+//            /unban *ник* - Разбанить игрока (админ)
     }
 
     private void post(String method, String jsonBody) throws Exception {

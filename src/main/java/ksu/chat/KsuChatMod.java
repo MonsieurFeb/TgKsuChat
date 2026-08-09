@@ -27,9 +27,7 @@ import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 import org.slf4j.Logger;
 
 import java.nio.file.Path;
-import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
 
@@ -44,17 +42,13 @@ public class KsuChatMod {
             .maximumSize(100)                                   // Максимум 100 фото в кэше
             .expireAfterWrite(5, TimeUnit.MINUTES)      // Удалить через 5 минут после сохранения
             .expireAfterAccess(2, TimeUnit.MINUTES)     // Удалить через 2 минуты без доступа
-            .removalListener(notification -> {
-                LOGGER.debug("Фото удалено из кэша: {}", notification.getKey());
-            })
+            .removalListener(notification -> LOGGER.debug("Фото удалено из кэша: {}", notification.getKey()))
             .build();
     private static final Cache<UUID, byte[][]> photoChunks = CacheBuilder.newBuilder()
             .maximumSize(100)
             .expireAfterWrite(5, TimeUnit.MINUTES)
             .expireAfterAccess(2, TimeUnit.MINUTES)
-            .removalListener(notification -> {
-                LOGGER.debug("Чанки фото удалены из кэша: {}", notification.getKey());
-            })
+            .removalListener(notification -> LOGGER.debug("Чанки фото удалены из кэша: {}", notification.getKey()))
             .build();
     private static final int PHOTO_CHUNK_SIZE = 262144;
     private static ChatManager chatManager;
@@ -77,65 +71,59 @@ public class KsuChatMod {
         PayloadRegistrar registrar = event.registrar(MODID);
         PayloadRegistrar optionalRegistrar = registrar.optional();
 
-        optionalRegistrar.playToClient(PhotoPayload.TYPE, PhotoPayload.CODEC, (payload, ctx) -> {
-            ctx.enqueueWork(() -> {
-                if (FMLEnvironment.dist == net.neoforged.api.distmarker.Dist.CLIENT) {
+        optionalRegistrar.playToClient(PhotoPayload.TYPE, PhotoPayload.CODEC, (payload, ctx) -> ctx.enqueueWork(() -> {
+            if (FMLEnvironment.dist == net.neoforged.api.distmarker.Dist.CLIENT) {
+                try {
+                    byte[][] chunks;
                     try {
-                        byte[][] chunks;
-                        try {
-                            chunks = photoChunks.get(payload.id(), () -> new byte[payload.total()][]);
-                        } catch (ExecutionException e) {
-                            LOGGER.error("Ошибка получения чанков для фото: {}", payload.id(), e);
+                        chunks = photoChunks.get(payload.id(), () -> new byte[payload.total()][]);
+                    } catch (ExecutionException e) {
+                        LOGGER.error("Ошибка получения чанков для фото: {}", payload.id(), e);
+                        return;
+                    }
+                    chunks[payload.index()] = payload.data();
+                    for (byte[] c : chunks) {
+                        if (c == null) {
                             return;
                         }
-                        chunks[payload.index()] = payload.data();
-                        for (byte[] c : chunks) {
-                            if (c == null) {
-                                return;
-                            }
-                        }
-                        photoChunks.invalidate(payload.id());
-                        int size = 0;
-                        for (byte[] c : chunks) {
-                            size += c.length;
-                        }
-                        byte[] full = new byte[size];
-                        int pos = 0;
-                        for (byte[] c : chunks) {
-                            System.arraycopy(c, 0, full, pos, c.length);
-                            pos += c.length;
-                        }
-                        Class.forName("ksu.chat.client.PhotoScreen")
-                                .getMethod("open", byte[].class)
-                                .invoke(null, (Object) full);
-                    } catch (Exception e) {
-                        LOGGER.error("[KsuChat] Не удалось открыть экран фото", e);
                     }
-                }
-            });
-        });
-
-        optionalRegistrar.playToClient(ChatMessagePayload.TYPE, ChatMessagePayload.CODEC, (payload, ctx) -> {
-            ctx.enqueueWork(() -> {
-                if (FMLEnvironment.dist == net.neoforged.api.distmarker.Dist.CLIENT) {
-                    handleClientChatMessage(payload);
-                }
-            });
-        });
-
-        optionalRegistrar.playToClient(SyncGroupsPayload.TYPE, SyncGroupsPayload.CODEC, (payload, ctx) -> {
-            ctx.enqueueWork(() -> {
-                if (FMLEnvironment.dist == net.neoforged.api.distmarker.Dist.CLIENT) {
-                    try {
-                        Class.forName("ksu.chat.client.KsuChatScreen")
-                                .getMethod("syncGroups", java.util.List.class, java.util.List.class)
-                                .invoke(null, payload.allGroups(), payload.myGroups());
-                    } catch (Exception e) {
-                        LOGGER.error("[KsuChat] Не удалось синхронизировать группы на клиенте", e);
+                    photoChunks.invalidate(payload.id());
+                    int size = 0;
+                    for (byte[] c : chunks) {
+                        size += c.length;
                     }
+                    byte[] full = new byte[size];
+                    int pos = 0;
+                    for (byte[] c : chunks) {
+                        System.arraycopy(c, 0, full, pos, c.length);
+                        pos += c.length;
+                    }
+                    Class.forName("ksu.chat.client.PhotoScreen")
+                            .getMethod("open", byte[].class)
+                            .invoke(null, (Object) full);
+                } catch (Exception e) {
+                    LOGGER.error("[KsuChat] Не удалось открыть экран фото", e);
                 }
-            });
-        });
+            }
+        }));
+
+        optionalRegistrar.playToClient(ChatMessagePayload.TYPE, ChatMessagePayload.CODEC, (payload, ctx) -> ctx.enqueueWork(() -> {
+            if (FMLEnvironment.dist == net.neoforged.api.distmarker.Dist.CLIENT) {
+                handleClientChatMessage(payload);
+            }
+        }));
+
+        optionalRegistrar.playToClient(SyncGroupsPayload.TYPE, SyncGroupsPayload.CODEC, (payload, ctx) -> ctx.enqueueWork(() -> {
+            if (FMLEnvironment.dist == net.neoforged.api.distmarker.Dist.CLIENT) {
+                try {
+                    Class.forName("ksu.chat.client.KsuChatScreen")
+                            .getMethod("syncGroups", java.util.List.class, java.util.List.class)
+                            .invoke(null, payload.allGroups(), payload.myGroups());
+                } catch (Exception e) {
+                    LOGGER.error("[KsuChat] Не удалось синхронизировать группы на клиенте", e);
+                }
+            }
+        }));
 
         optionalRegistrar.playToServer(ChatSendPayload.TYPE, ChatSendPayload.CODEC, (payload, ctx) -> {
             if (!(ctx.player() instanceof ServerPlayer player)) return;
@@ -192,11 +180,17 @@ public class KsuChatMod {
 //                        case GROUP -> "§b[Группа " + payload.groupName() + "] §r";
 //                        default -> "§7[Локальный] §r";
 //                    };
+
+                    String firstPart = payload.sender().substring(0, Math.min(4, payload.sender().length()));
+                    String secondPart = payload.sender().substring(Math.min(4, payload.sender().length()));
                     net.minecraft.network.chat.Component chatMsg = net.minecraft.network.chat.Component.literal(prefix)
-                            .append(net.minecraft.network.chat.Component.literal("<" + payload.sender() + "> "));
+                            .append(net.minecraft.network.chat.Component.literal("<"))
+                            .append(net.minecraft.network.chat.Component.literal(firstPart).withStyle(s -> s.withColor(ChatFormatting.BLUE))) // [ТГ]
+                            .append(net.minecraft.network.chat.Component.literal(secondPart))
+                            .append(net.minecraft.network.chat.Component.literal("> "));
                     if (payload.clickCommand() != null && !payload.clickCommand().isEmpty()) {
                         chatMsg = chatMsg.copy().append(
-                                net.minecraft.network.chat.Component.literal("[Фото]")
+                                net.minecraft.network.chat.Component.literal("[Фото] ")
                                         .withStyle(s -> s.withColor(ChatFormatting.GREEN)
                                                 .withClickEvent(new net.minecraft.network.chat.ClickEvent(
                                                         net.minecraft.network.chat.ClickEvent.Action.RUN_COMMAND,
@@ -308,9 +302,7 @@ public class KsuChatMod {
                     player.sendSystemMessage(Component.literal("Ошибка!"));
                 }
             }
-            case "list" -> {
-                syncGroupsToPlayer(player);
-            }
+            case "list" -> syncGroupsToPlayer(player);
         }
     }
 
@@ -415,6 +407,7 @@ public class KsuChatMod {
         telegramBot.sendMessage(config.getServerStartMessage());
     }
 
+    // TODO сделать, а то это дело не отрабатывает
     @SubscribeEvent
     public void onServerStopping(ServerStoppingEvent event) {
         LOGGER.info("[KsuChat] Сервер останавливается, отключение Telegram-бота...");

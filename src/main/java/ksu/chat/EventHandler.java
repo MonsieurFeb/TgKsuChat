@@ -3,10 +3,8 @@ package ksu.chat;
 import com.mojang.logging.LogUtils;
 import ksu.chat.chat.ChatChannel;
 import ksu.chat.chat.ChatManager;
-import ksu.chat.net.ChatMessagePayload;
 import net.minecraft.advancements.AdvancementHolder;
 import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.bus.api.EventPriority;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -15,10 +13,7 @@ import net.neoforged.neoforge.event.entity.living.LivingDeathEvent;
 import net.neoforged.neoforge.event.entity.player.AdvancementEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import org.slf4j.Logger;
-
 import java.util.List;
-
-import static ksu.chat.KsuChatMod.MODID;
 
 public class EventHandler {
     private static final Logger LOGGER = LogUtils.getLogger();
@@ -29,7 +24,9 @@ public class EventHandler {
 
         ServerPlayer player = event.getPlayer();
         String playerName = player.getName().getString();
+        Component displayName = event.getPlayer().getDisplayName();
         String message = event.getRawText();
+        Component messageText = event.getMessage();
 
         ChatManager chatManager = KsuChatMod.getChatManager();
         if (chatManager == null) return;
@@ -46,14 +43,14 @@ public class EventHandler {
             }
         }
 
-        ChatMessagePayload out = new ChatMessagePayload(playerName, message, channel.id, groupName, null);
+        Component fullMessage = Component.literal("<")
+                .append(displayName)
+                .append(Component.literal("> "))
+                .append(messageText);
+
         List<ServerPlayer> recipients = chatManager.getRecipients(player, channel, groupName);
         for (ServerPlayer p : recipients) {
-            if (p.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
-                p.connection.send(out);
-            } else {
-                p.sendSystemMessage(Component.literal("<" + playerName + "> " + message));
-            }
+            p.sendSystemMessage(fullMessage);
         }
 
         LOGGER.info("[KsuChat] [{}] {}: {}", channel, playerName, message);
