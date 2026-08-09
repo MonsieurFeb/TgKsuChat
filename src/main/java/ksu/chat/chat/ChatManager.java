@@ -29,7 +29,8 @@ public class ChatManager {
     }
 
     public ChatChannel getActiveChannel(UUID playerId) {
-        return activeChannels.getOrDefault(playerId, ChatChannel.LOCAL);
+        //return activeChannels.getOrDefault(playerId, ChatChannel.LOCAL);
+        return ChatChannel.GLOBAL;
     }
 
     public String getActiveGroup(UUID playerId) {

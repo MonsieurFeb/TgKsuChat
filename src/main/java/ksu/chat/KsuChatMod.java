@@ -1,5 +1,7 @@
 package ksu.chat;
 
+import com.google.common.cache.Cache;
+import com.google.common.cache.CacheBuilder;
 import com.mojang.logging.LogUtils;
 import ksu.chat.chat.ChatChannel;
 import ksu.chat.chat.ChatManager;
@@ -7,6 +9,7 @@ import ksu.chat.chat.GroupManager;
 import ksu.chat.net.*;
 import net.minecraft.commands.Commands;
 import net.minecraft.network.chat.Component;
+import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.level.ServerPlayer;
 import net.neoforged.bus.api.IEventBus;
 import net.neoforged.bus.api.SubscribeEvent;
@@ -17,6 +20,7 @@ import net.neoforged.neoforge.event.RegisterCommandsEvent;
 import net.neoforged.neoforge.event.entity.player.PlayerEvent;
 import net.neoforged.neoforge.event.server.ServerStartingEvent;
 import net.neoforged.neoforge.event.server.ServerStoppingEvent;
+import net.neoforged.neoforge.network.PacketDistributor;
 import net.neoforged.neoforge.network.event.RegisterPayloadHandlersEvent;
 import net.neoforged.neoforge.network.registration.PayloadRegistrar;
 import org.slf4j.Logger;
@@ -25,6 +29,7 @@ import java.nio.file.Path;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.TimeUnit;
 
 @Mod(KsuChatMod.MODID)
 public class KsuChatMod {
@@ -46,7 +51,7 @@ public class KsuChatMod {
         modEventBus.addListener(this::onRegisterPayloads);
         if (FMLEnvironment.dist == net.neoforged.api.distmarker.Dist.CLIENT) {
             try {
-                NeoForge.EVENT_BUS.register(new ksu.chat.client.ClientEventHandler());
+//                NeoForge.EVENT_BUS.register(new ksu.chat.client.ClientEventHandler());
             } catch (Exception ignored) {}
         }
         LOGGER.info("[KsuChat] Мод загружен.");
@@ -117,7 +122,8 @@ public class KsuChatMod {
         registrar.playToServer(SetActiveChannelPayload.TYPE, SetActiveChannelPayload.CODEC, (payload, ctx) -> {
             if (!(ctx.player() instanceof ServerPlayer player)) return;
             ctx.enqueueWork(() -> {
-                ChatChannel channel = ChatChannel.fromId(payload.channelId());
+                //ChatChannel channel = ChatChannel.fromId(payload.channelId());
+                ChatChannel channel = ChatChannel.GLOBAL;
                 getChatManager().setActiveChannel(player.getUUID(), channel, payload.groupName());
             });
         });
@@ -130,7 +136,8 @@ public class KsuChatMod {
 
     private static void handleClientChatMessage(ChatMessagePayload payload) {
         try {
-            ChatChannel channel = ChatChannel.fromId(payload.channelId());
+            //ChatChannel channel = ChatChannel.fromId(payload.channelId());
+            ChatChannel channel = ChatChannel.GLOBAL;
             String tabName;
             net.minecraft.ChatFormatting color;
             switch (channel) {
@@ -198,7 +205,8 @@ public class KsuChatMod {
     }
 
     private void handleServerChatMessage(ServerPlayer sender, ChatSendPayload payload) {
-        ChatChannel channel = ChatChannel.fromId(payload.channelId());
+        //ChatChannel channel = ChatChannel.fromId(payload.channelId());
+        ChatChannel channel = ChatChannel.GLOBAL;
         String senderName = sender.getName().getString();
         String message = payload.message();
         String groupName = payload.groupName();
