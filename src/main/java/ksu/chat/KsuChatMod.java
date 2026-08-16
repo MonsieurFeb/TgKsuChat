@@ -147,8 +147,7 @@ public class KsuChatMod {
 
     private static void handleClientChatMessage(ChatMessagePayload payload) {
         try {
-            //ChatChannel channel = ChatChannel.fromId(payload.channelId());
-            ChatChannel channel = ChatChannel.GLOBAL;
+//            ChatChannel channel = ChatChannel.fromId(payload.channelId());
             String tabName = "";
             net.minecraft.ChatFormatting color  = net.minecraft.ChatFormatting.WHITE;
 //            switch (channel) {
@@ -245,7 +244,8 @@ public class KsuChatMod {
             }
         }
 
-        LOGGER.info("[KsuChat] [{}] {}: {}", channel, senderName, message);
+//        LOGGER.info("[KsuChat] [{}] {}: {}", channel, senderName, message);
+        LOGGER.info("[KsuChat] {}: {}", senderName, message);
 
         if (channel == ChatChannel.GLOBAL && telegramBot != null) {
             telegramBot.sendMessage("<" + senderName + "> " + message);

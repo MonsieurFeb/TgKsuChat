@@ -179,7 +179,7 @@ public class TelegramBot {
                 if (json.get("ok").getAsBoolean()) {
                     com.google.gson.JsonArray results = json.getAsJsonArray("result");
                     if (!results.isEmpty()) {
-                        LOGGER.info("[KsuChat] Получено {} обновлений", results.size());
+//                        LOGGER.info("[KsuChat] Получено {} обновлений", results.size());
                     }
                     for (var elem : results) {
                         com.google.gson.JsonObject update = elem.getAsJsonObject();
@@ -237,6 +237,7 @@ public class TelegramBot {
 
         if (text != null && text.startsWith("/")) {
             LOGGER.info("[KsuChat] Telegram-команда от {} (ID: {}): {}", senderName, userId, text);
+            text = text.replaceAll("@\\S*+", "");
             String[] parts = text.split("\\s+", 3);
             String cmd = parts[0].toLowerCase();
             switch (cmd) {
@@ -263,9 +264,10 @@ public class TelegramBot {
             boolean isImage = mimeType.startsWith("image/");
             if (!isImage) {
                 if (text != null && !text.isEmpty()) {
+                    String finalText1 = text;
                     srv.execute(() -> {
                         ksu.chat.net.ChatMessagePayload chatMsg = new ksu.chat.net.ChatMessagePayload(
-                                "[ТГ] " + senderName, text, (byte) 1, "", null);
+                                "[ТГ] " + senderName, finalText1, (byte) 1, "", null);
                         for (ServerPlayer p : srv.getPlayerList().getPlayers()) {
                             if (p.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
                                 p.connection.send(chatMsg);
@@ -273,7 +275,7 @@ public class TelegramBot {
                                 p.sendSystemMessage(Component.literal("<")
                                         .append(Component.literal("[ТГ] ").withStyle(s -> s.withColor(ChatFormatting.BLUE)))
                                         .append(Component.literal(senderName + "> "))
-                                        .append(Component.literal(text))
+                                        .append(Component.literal(finalText1))
                                 );
                             }
                         }
@@ -374,9 +376,10 @@ public class TelegramBot {
         }
 
         if (!text.isEmpty()) {
+            String finalText2 = text;
             srv.execute(() -> {
                 ksu.chat.net.ChatMessagePayload chatMsg = new ksu.chat.net.ChatMessagePayload(
-                        "[ТГ] " + senderName, text, (byte) 1, "", null);
+                        "[ТГ] " + senderName, finalText2, (byte) 1, "", null);
                 for (ServerPlayer p : srv.getPlayerList().getPlayers()) {
                     if (p.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
                         p.connection.send(chatMsg);
@@ -384,7 +387,7 @@ public class TelegramBot {
                         p.sendSystemMessage(Component.literal("<")
                                 .append(Component.literal("[ТГ] ").withStyle(s -> s.withColor(ChatFormatting.BLUE)))
                                 .append(Component.literal(senderName + "> "))
-                                .append(Component.literal(text))
+                                .append(Component.literal(finalText2))
                         );
                     }
                 }
@@ -662,21 +665,17 @@ public class TelegramBot {
 
     private void handleMyId(long userId, String username) {
         boolean admin = config.isAdmin(userId);
-        sendMessage("Ваш Telegram ID: <code>" + userId + "</code>\nUsername: @" + username + "\nАдмин: " + (admin ? "ДА" : "НЕТ") + "\n\nДобавьте этот ID в telegramAdmins в config/ksuchat.toml");
+        sendMessage("Ваш Telegram ID: " + userId + "\nUsername: @" + username + "\nАдмин: " + (admin ? "ДА" : "НЕТ") + "\n\nДобавьте этот ID в telegramAdmins в config/ksuchat.toml");
     }
 
     private void handleHelp() {
         sendMessage("""
             KsuChat Команды:
-
             /help - Показать эту справку
             /myid - Показать ваш Telegram ID (для настройки)
             /players - Список игроков онлайн
-            /kick *ник* - Кикнуть игрока (админ)
-            /zwl add *ник* - Добавить в вайтлист (админ)
-            /zwl remove *ник* - Убрать из вайтлиста (админ)
-
-            Фото: отправляйте как файл для качества без сжатия!
+            /kick [ник] - Кикнуть игрока (админ)
+            /zwl [add/remove] [ник] - Добавить или удалить из вайтлиста (админ)
             """);
 //            /stop - Остановить сервер (админ)
 //            /restart - Перезагрузить сервер (админ)
