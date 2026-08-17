@@ -1,8 +1,5 @@
 # TgKsuChat
 
-[![Modrinth](https://shields.io)](https://modrinth.com/mod/ksuchat)
-[![CurseForge](https://shields.io)](https://legacy.curseforge.com/minecraft/mc-mods/ksuchat)
-
 <p align="center">
   <img src="icon.jpg" width="300" alt="icon.jpg">
 </p>
@@ -23,4 +20,4 @@
 ### Acknowledgements
 This project is inspired by these projects:
 - https://www.curseforge.com/minecraft/mc-mods/telegram-chain
-- https://modrinth.com/plugin/tgbridge!
+- https://modrinth.com/plugin/tgbridge
