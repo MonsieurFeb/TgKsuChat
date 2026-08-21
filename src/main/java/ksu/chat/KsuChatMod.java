@@ -184,7 +184,7 @@ public class KsuChatMod {
                     String secondPart = payload.sender().substring(Math.min(4, payload.sender().length()));
                     net.minecraft.network.chat.Component chatMsg = net.minecraft.network.chat.Component.literal(prefix)
                             .append(net.minecraft.network.chat.Component.literal("<"))
-                            .append(net.minecraft.network.chat.Component.literal(firstPart).withStyle(s -> s.withColor(ChatFormatting.BLUE))) // [ТГ]
+                            .append(net.minecraft.network.chat.Component.literal(firstPart).withStyle(s -> s.withColor(ChatFormatting.DARK_AQUA))) // [ТГ]
                             .append(net.minecraft.network.chat.Component.literal(secondPart))
                             .append(net.minecraft.network.chat.Component.literal("> "));
                     if (payload.clickCommand() != null && !payload.clickCommand().isEmpty()) {

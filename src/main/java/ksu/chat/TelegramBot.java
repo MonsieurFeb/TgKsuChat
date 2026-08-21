@@ -273,7 +273,7 @@ public class TelegramBot {
                                 p.connection.send(chatMsg);
                             } else {
                                 p.sendSystemMessage(Component.literal("<")
-                                        .append(Component.literal("[ТГ] ").withStyle(s -> s.withColor(ChatFormatting.BLUE)))
+                                        .append(Component.literal("[ТГ] ").withStyle(s -> s.withColor(ChatFormatting.DARK_AQUA)))
                                         .append(Component.literal(senderName + "> "))
                                         .append(Component.literal(finalText1))
                                 );
@@ -303,7 +303,7 @@ public class TelegramBot {
                             p.connection.send(chatMsg);
                         } else {
                             p.sendSystemMessage(Component.literal("<")
-                                    .append(Component.literal("[ТГ] ").withStyle(s -> s.withColor(ChatFormatting.BLUE)))
+                                    .append(Component.literal("[ТГ] ").withStyle(s -> s.withColor(ChatFormatting.DARK_AQUA)))
                                     .append(Component.literal(senderName + "> "))
                                     .append(Component.literal("[Фото, для просмотра нужен мод] ").withStyle(s -> s.withColor(ChatFormatting.GREEN)))
                                     .append(Component.literal(finalText))
@@ -318,7 +318,7 @@ public class TelegramBot {
                             p.connection.send(chatMsg);
                         } else {
                             p.sendSystemMessage(Component.literal("<")
-                                    .append(Component.literal("[ТГ] ").withStyle(s -> s.withColor(ChatFormatting.BLUE)))
+                                    .append(Component.literal("[ТГ] ").withStyle(s -> s.withColor(ChatFormatting.DARK_AQUA)))
                                     .append(Component.literal(senderName + "> "))
                                     .append(Component.literal("[Фото не загружено] ").withStyle(s -> s.withColor(ChatFormatting.GREEN)))
                                     .append(Component.literal(finalText))
@@ -348,7 +348,7 @@ public class TelegramBot {
                             p.connection.send(chatMsg);
                         } else {
                             p.sendSystemMessage(Component.literal("<")
-                                    .append(Component.literal("[ТГ] ").withStyle(s -> s.withColor(ChatFormatting.BLUE)))
+                                    .append(Component.literal("[ТГ] ").withStyle(s -> s.withColor(ChatFormatting.DARK_AQUA)))
                                     .append(Component.literal(senderName + "> "))
                                     .append(Component.literal("[Фото, для просмотра нужен мод] ").withStyle(s -> s.withColor(ChatFormatting.GREEN)))
                                     .append(Component.literal(finalText))
@@ -363,7 +363,7 @@ public class TelegramBot {
                             p.connection.send(chatMsg);
                         } else {
                             p.sendSystemMessage(Component.literal("<")
-                                    .append(Component.literal("[ТГ] ").withStyle(s -> s.withColor(ChatFormatting.BLUE)))
+                                    .append(Component.literal("[ТГ] ").withStyle(s -> s.withColor(ChatFormatting.DARK_AQUA)))
                                     .append(Component.literal(senderName + "> "))
                                     .append(Component.literal("[Фото не загружено] ").withStyle(s -> s.withColor(ChatFormatting.GREEN)))
                                     .append(Component.literal(finalText))
@@ -385,7 +385,7 @@ public class TelegramBot {
                         p.connection.send(chatMsg);
                     } else {
                         p.sendSystemMessage(Component.literal("<")
-                                .append(Component.literal("[ТГ] ").withStyle(s -> s.withColor(ChatFormatting.BLUE)))
+                                .append(Component.literal("[ТГ] ").withStyle(s -> s.withColor(ChatFormatting.DARK_AQUA)))
                                 .append(Component.literal(senderName + "> "))
                                 .append(Component.literal(finalText2))
                         );
