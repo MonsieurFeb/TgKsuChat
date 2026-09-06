@@ -4,12 +4,12 @@ import com.google.gson.JsonParser;
 import com.mojang.authlib.GameProfile;
 import com.mojang.logging.LogUtils;
 import net.minecraft.ChatFormatting;
+import net.minecraft.commands.CommandSourceStack;
 import net.minecraft.network.chat.Component;
 import net.minecraft.resources.ResourceLocation;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.server.level.ServerPlayer;
 import net.minecraft.server.players.UserBanListEntry;
-import net.minecraft.server.players.UserWhiteListEntry;
 import org.slf4j.Logger;
 
 import java.io.IOException;
@@ -247,7 +247,7 @@ public class TelegramBot {
 //                case "/restart" -> handleRestart(userId, senderName);
 //                case "/ban" -> handleBan(userId, senderName, parts);
 //                case "/unban" -> handleUnban(userId, senderName, parts);
-                case "/zwl" -> handleWhitelist(userId, senderName, parts);
+                case "/zwl" -> handleZwlWhitelist(userId, senderName, parts);
                 case "/myid" -> handleMyId(userId, senderName);
                 case "/start", "/help" -> handleHelp();
                 default -> sendMessage("Неизвестная команда: " + cmd);
@@ -605,7 +605,7 @@ public class TelegramBot {
         });
     }
 
-    private void handleWhitelist(long userId, String username, String[] parts) {
+    private void handleZwlWhitelist(long userId, String username, String[] parts) {
         if (!config.isAdmin(userId)) {
             sendMessage("Доступ запрещён. Только для админов.");
             return;
@@ -617,42 +617,21 @@ public class TelegramBot {
         String action = parts[1].toLowerCase();
         String target = parts[2];
         MinecraftServer srv = server;
+        CommandSourceStack source = server.createCommandSourceStack();
         if (srv == null) {
             sendMessage("Сервер не запущен.");
             return;
         }
         srv.execute(() -> {
             try {
-                var wl = srv.getPlayerList().getWhiteList();
                 switch (action) {
                     case "add" -> {
-                        GameProfile profile = new GameProfile(java.util.UUID.randomUUID(), target);
-                        wl.add(new UserWhiteListEntry(profile));
+                        server.getCommands().performPrefixedCommand(source, "/zwl add " + username);
                         sendMessage("Игрок " + target + " добавлен в вайтлист @" + username);
                     }
                     case "remove" -> {
-                        java.io.File wlFile = new java.io.File(srv.getWorldPath(net.minecraft.world.level.storage.LevelResource.ROOT).toFile(), "whitelist.json");
-                        boolean found = false;
-                        if (wlFile.exists()) {
-                            String content = java.nio.file.Files.readString(wlFile.toPath());
-                            com.google.gson.JsonArray arr = com.google.gson.JsonParser.parseString(content).getAsJsonArray();
-                            for (com.google.gson.JsonElement elem : arr) {
-                                com.google.gson.JsonObject obj = elem.getAsJsonObject();
-                                String name = obj.has("name") ? obj.get("name").getAsString() : "";
-                                if (name.equalsIgnoreCase(target)) {
-                                    String uuidStr = obj.has("uuid") ? obj.get("uuid").getAsString() : "";
-                                    java.util.UUID uuid = java.util.UUID.fromString(uuidStr);
-                                    GameProfile gp = new GameProfile(uuid, name);
-                                    wl.remove(gp);
-                                    found = true;
-                                }
-                            }
-                        }
-                        if (!found) {
-                            sendMessage("Игрок " + target + " не найден в вайтлисте");
-                        } else {
+                        server.getCommands().performPrefixedCommand(source, "/zwl remove " + username);
                             sendMessage("Игрок " + target + " удалён из вайтлиста @" + username);
-                        }
                     }
                     default -> sendMessage("Использование: /zwl add &lt;ник&gt; ИЛИ /zwl remove &lt;ник&gt;");
                 }
