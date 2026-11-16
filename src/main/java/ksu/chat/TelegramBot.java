@@ -1,116 +1,108 @@
 package ksu.chat;
 
+import com.google.gson.JsonArray;
+import com.google.gson.JsonElement;
+import com.google.gson.JsonObject;
 import com.google.gson.JsonParser;
 import com.mojang.authlib.GameProfile;
-import com.mojang.logging.LogUtils;
-import net.minecraft.ChatFormatting;
-import net.minecraft.commands.CommandSourceStack;
-import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
+import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.server.MinecraftServer;
-import net.minecraft.server.level.ServerPlayer;
-import net.minecraft.server.players.UserBanListEntry;
-import org.slf4j.Logger;
+import net.minecraft.util.text.TextComponentString;
+import net.minecraft.util.text.TextFormatting;
+import net.minecraft.util.text.event.ClickEvent;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
+import javax.net.ssl.HostnameVerifier;
+import javax.net.ssl.HttpsURLConnection;
+import javax.net.ssl.SSLContext;
+import javax.net.ssl.SSLSession;
+import javax.net.ssl.SSLSocketFactory;
+import javax.net.ssl.TrustManager;
+import javax.net.ssl.X509TrustManager;
+import java.io.ByteArrayOutputStream;
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.net.HttpURLConnection;
 import java.net.InetSocketAddress;
-import java.net.ProxySelector;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.time.Duration;
-import java.util.ArrayList;
-import java.util.List;
+import java.net.Proxy;
+import java.net.URL;
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
+import java.security.SecureRandom;
+import java.security.cert.X509Certificate;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.atomic.AtomicBoolean;
-import javax.net.ssl.SSLContext;
-import javax.net.ssl.TrustManager;
-import javax.net.ssl.X509TrustManager;
-import java.security.cert.X509Certificate;
 
-import static ksu.chat.KsuChatMod.MODID;
-
+/**
+ * Простой мост между чатом Minecraft и Telegram.
+ * <p>
+ * Поддерживаются только сообщения в обе стороны и загрузка фотографий из
+ * Telegram (фото открывается на клиенте по клику на {@code [Фото]}).
+ */
 public class TelegramBot {
-    private static final Logger LOGGER = LogUtils.getLogger();
+    private static final Logger LOGGER = LogManager.getLogger("KsuChat");
     private static final String API_BASE = "https://api.telegram.org/bot";
+    private static final int CONNECT_TIMEOUT = 15000;
+    private static final int READ_TIMEOUT = 40000;
 
     private final ModConfig config;
-    private final HttpClient httpClient;
     private final ExecutorService executor;
     private final AtomicBoolean running = new AtomicBoolean(false);
     private Thread pollThread;
-    private long updateOffset = 0;
+    private long updateOffset = 0L;
     private volatile MinecraftServer server;
-    private volatile ksu.chat.chat.ChatManager chatManager;
+
+    private final SSLSocketFactory sslSocketFactory;
+    private final HostnameVerifier hostnameVerifier;
 
     public TelegramBot(ModConfig config) {
         this.config = config;
-        this.httpClient = buildHttpClient(config);
         this.executor = Executors.newSingleThreadExecutor(r -> {
             Thread t = new Thread(r, "KsuChat-TelegramBot");
             t.setDaemon(true);
             return t;
         });
-    }
 
-    private static HttpClient buildHttpClient(ModConfig config) {
-        HttpClient.Builder builder = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(15));
-
-        String proxyType = config.getProxyType();
-        String proxyHost = config.getProxyHost();
-        int proxyPort = config.getProxyPort();
-
-        if (proxyType != null && !proxyType.isEmpty() && proxyHost != null && !proxyHost.isEmpty()) {
-            ProxySelector proxySelector;
-            if (proxyType.equalsIgnoreCase("socks")) {
-                proxySelector = ProxySelector.of(new InetSocketAddress(proxyHost, proxyPort));
-            } else if (proxyType.equalsIgnoreCase("http")) {
-                proxySelector = new ProxySelector() {
-                    @Override
-                    public List<java.net.Proxy> select(URI uri) {
-                        return List.of(new java.net.Proxy(java.net.Proxy.Type.HTTP,
-                                new InetSocketAddress(proxyHost, proxyPort)));
-                    }
-                    @Override
-                    public void connectFailed(URI uri, java.net.SocketAddress sa, IOException e) {
-                        LOGGER.warn("[KsuChat] Ошибка подключения к прокси: {}", e.getMessage());
-                    }
-                };
-            } else {
-                LOGGER.warn("[KsuChat] Неизвестный тип прокси: {}. Используйте 'socks' или 'http'.", proxyType);
-                proxySelector = ProxySelector.getDefault();
-            }
-            builder.proxy(proxySelector);
-            LOGGER.info("[KsuChat] Используется {} прокси {}:{}", proxyType, proxyHost, proxyPort);
-        }
-
+        SSLSocketFactory factory = null;
+        HostnameVerifier verifier = null;
         try {
-            TrustManager[] trustAllCerts = new TrustManager[]{
-                new X509TrustManager() {
-                    public X509Certificate[] getAcceptedIssuers() { return new X509Certificate[0]; }
-                    public void checkClientTrusted(X509Certificate[] certs, String authType) {}
-                    public void checkServerTrusted(X509Certificate[] certs, String authType) {}
-                }
+            TrustManager[] trustAllCerts = new TrustManager[] {
+                    new X509TrustManager() {
+                        @Override
+                        public X509Certificate[] getAcceptedIssuers() {
+                            return new X509Certificate[0];
+                        }
+
+                        @Override
+                        public void checkClientTrusted(X509Certificate[] certs, String authType) {
+                        }
+
+                        @Override
+                        public void checkServerTrusted(X509Certificate[] certs, String authType) {
+                        }
+                    }
             };
             SSLContext sslContext = SSLContext.getInstance("TLS");
-            sslContext.init(null, trustAllCerts, new java.security.SecureRandom());
-            builder.sslContext(sslContext);
+            sslContext.init(null, trustAllCerts, new SecureRandom());
+            factory = sslContext.getSocketFactory();
+            verifier = new HostnameVerifier() {
+                @Override
+                public boolean verify(String hostname, SSLSession session) {
+                    return true;
+                }
+            };
         } catch (Exception e) {
-            LOGGER.warn("[KsuChat] Не удалось установить пользовательский SSL-контекст: {}", e.getMessage());
+            LOGGER.warn("[KsuChat] Не удалось установить доверяющий SSL-контекст: {}", e.getMessage());
         }
-
-        return builder.build();
+        this.sslSocketFactory = factory;
+        this.hostnameVerifier = verifier;
     }
 
     public void setServer(MinecraftServer server) {
         this.server = server;
-    }
-
-    public void setChatManager(ksu.chat.chat.ChatManager chatManager) {
-        this.chatManager = chatManager;
     }
 
     public void start() {
@@ -119,10 +111,15 @@ public class TelegramBot {
             return;
         }
         running.set(true);
-        pollThread = new Thread(this::pollLoop, "KsuChat-Poller");
+        pollThread = new Thread(new Runnable() {
+            @Override
+            public void run() {
+                pollLoop();
+            }
+        }, "KsuChat-Poller");
         pollThread.setDaemon(true);
         pollThread.start();
-        LOGGER.info("[KsuChat] Telegram-бот успешно запущен.");
+        LOGGER.info("[KsuChat] Telegram-бот запущен.");
     }
 
     public void stop() {
@@ -134,106 +131,124 @@ public class TelegramBot {
         LOGGER.info("[KsuChat] Telegram-бот остановлен.");
     }
 
-    public void sendMessage(String text) {
-        if (!config.isConfigured() || text == null || text.isEmpty()) return;
-        executor.execute(() -> {
-            try {
-                String escaped = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
-                com.google.gson.JsonObject body = new com.google.gson.JsonObject();
-                body.addProperty("chat_id", config.getChatId());
-                body.addProperty("text", escaped);
-                body.addProperty("parse_mode", "HTML");
-                post("sendMessage", body.toString());
-            } catch (Exception e) {
-                LOGGER.error("[KsuChat] Ошибка отправки Telegram-сообщения: {}", e.getMessage(), e);
+    // ------------------------------------------------------------------
+    // Отправка в Telegram
+    // ------------------------------------------------------------------
+
+    public void sendMessage(final String text) {
+        if (!config.isConfigured() || text == null || text.isEmpty()) {
+            return;
+        }
+        executor.execute(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    String escaped = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;");
+                    JsonObject body = new JsonObject();
+                    body.addProperty("chat_id", config.getChatId());
+                    body.addProperty("text", escaped);
+                    body.addProperty("parse_mode", "HTML");
+                    post("sendMessage", body.toString());
+                } catch (Exception e) {
+                    LOGGER.error("[KsuChat] Ошибка отправки Telegram-сообщения: {}", e.getMessage(), e);
+                }
             }
         });
     }
 
-    public void sendMarkdown(String text) {
-        if (!config.isConfigured() || text == null || text.isEmpty()) return;
-        executor.execute(() -> {
-            try {
-                com.google.gson.JsonObject body = new com.google.gson.JsonObject();
-                body.addProperty("chat_id", config.getChatId());
-                body.addProperty("text", text);
-                post("sendMessage", body.toString());
-            } catch (Exception e) {
-                LOGGER.error("[KsuChat] Ошибка отправки Telegram-сообщения: {}", e.getMessage(), e);
+    private void post(String method, String jsonBody) throws IOException {
+        String response = postJson(API_BASE + config.getBotToken() + "/" + method, jsonBody);
+        try {
+            JsonObject json = new JsonParser().parse(response).getAsJsonObject();
+            if (!json.get("ok").getAsBoolean()) {
+                String desc = json.has("description") ? json.get("description").getAsString() : "неизвестная ошибка";
+                LOGGER.error("[KsuChat] Ошибка Telegram API {}: {}", method, desc);
             }
-        });
+        } catch (Exception e) {
+            LOGGER.error("[KsuChat] Некорректный ответ Telegram API {}: {}", method, response);
+        }
     }
+
+    // ------------------------------------------------------------------
+    // Опрос обновлений
+    // ------------------------------------------------------------------
 
     private void pollLoop() {
-        LOGGER.info("[KsuChat] Опрос запущен. chatId={}", config.getChatId());
+        LOGGER.info("[KsuChat] Опрос Telegram запущен. chatId={}", config.getChatId());
         while (running.get()) {
+            HttpURLConnection connection = null;
             try {
-                String url = API_BASE + config.getBotToken() + "/getUpdates?offset=" + updateOffset + "&timeout=30";
-                HttpRequest request = HttpRequest.newBuilder()
-                        .uri(URI.create(url))
-                        .timeout(Duration.ofSeconds(40))
-                        .GET()
-                        .build();
-                HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-                com.google.gson.JsonObject json = JsonParser.parseString(response.body()).getAsJsonObject();
+                String url = API_BASE + config.getBotToken()
+                        + "/getUpdates?offset=" + updateOffset + "&timeout=30";
+                connection = openConnection(url, "GET");
+                connection.setReadTimeout(READ_TIMEOUT);
+
+                String body = readResponse(connection);
+                JsonObject json = new JsonParser().parse(body).getAsJsonObject();
                 if (json.get("ok").getAsBoolean()) {
-                    com.google.gson.JsonArray results = json.getAsJsonArray("result");
-                    if (!results.isEmpty()) {
-//                        LOGGER.info("[KsuChat] Получено {} обновлений", results.size());
-                    }
-                    for (var elem : results) {
-                        com.google.gson.JsonObject update = elem.getAsJsonObject();
+                    JsonArray results = json.getAsJsonArray("result");
+                    for (JsonElement elem : results) {
+                        JsonObject update = elem.getAsJsonObject();
                         updateOffset = update.get("update_id").getAsLong() + 1;
                         if (update.has("message")) {
                             handleUpdate(update.getAsJsonObject("message"));
                         }
                     }
                 }
-            } catch (InterruptedException e) {
-                Thread.currentThread().interrupt();
-                break;
             } catch (Exception e) {
-                LOGGER.warn("[KsuChat] Ошибка опроса: {}", e.getMessage());
+                if (!running.get()) {
+                    break;
+                }
+                LOGGER.warn("[KsuChat] Ошибка опроса Telegram: {}", e.getMessage());
                 try {
-                    Thread.sleep(5000);
+                    Thread.sleep(5000L);
                 } catch (InterruptedException ie) {
                     Thread.currentThread().interrupt();
                     break;
                 }
+            } finally {
+                if (connection != null) {
+                    connection.disconnect();
+                }
             }
         }
-        LOGGER.info("[KsuChat] Опрос остановлен.");
+        LOGGER.info("[KsuChat] Опрос Telegram остановлен.");
     }
 
-    private void handleUpdate(com.google.gson.JsonObject message) {
-        if (!message.has("chat")) return;
+    private void handleUpdate(JsonObject message) {
+        if (!message.has("chat")) {
+            return;
+        }
 
-        com.google.gson.JsonObject chat = message.getAsJsonObject("chat");
+        JsonObject chat = message.getAsJsonObject("chat");
         long chatId = chat.get("id").getAsLong();
-        if (chatId != config.getChatId()) return;
+        if (chatId != config.getChatId()) {
+            return;
+        }
 
         String username = "";
+        long userId = 0L;
         if (message.has("from")) {
-            com.google.gson.JsonObject from = message.getAsJsonObject("from");
+            JsonObject from = message.getAsJsonObject("from");
+            if (from.has("id")) {
+                userId = from.get("id").getAsLong();
+            }
             if (from.has("username")) {
                 username = from.get("username").getAsString();
             } else if (from.has("first_name")) {
                 username = from.get("first_name").getAsString();
             }
         }
-        String senderName = username.isEmpty() ? "Telegram" : username;
-
-        long userId = 0;
-        if (message.has("from")) {
-            userId = message.getAsJsonObject("from").get("id").getAsLong();
-        }
+        final String senderName = username.isEmpty() ? "Telegram" : username;
 
         String text = message.has("text") ? message.get("text").getAsString() : null;
         String caption = message.has("caption") ? message.get("caption").getAsString() : null;
         boolean hasPhoto = message.has("photo");
         boolean hasDocument = message.has("document");
 
-        if (text == null && !hasPhoto && !hasDocument) return;
+        if (text == null && !hasPhoto && !hasDocument) {
+            return;
+        }
 
         if (text != null && text.startsWith("/")) {
             LOGGER.info("[KsuChat] Telegram-команда от {} (ID: {}): {}", senderName, userId, text);
@@ -241,271 +256,111 @@ public class TelegramBot {
             String[] parts = text.split("\\s+", 3);
             String cmd = parts[0].toLowerCase();
             switch (cmd) {
-                case "/players" -> handlePlayers();
-//                case "/stop" -> handleStop(userId, senderName);
-                case "/kick" -> handleKick(userId, senderName, parts);
-//                case "/restart" -> handleRestart(userId, senderName);
-//                case "/ban" -> handleBan(userId, senderName, parts);
-//                case "/unban" -> handleUnban(userId, senderName, parts);
-                case "/zwl" -> handleZwlWhitelist(userId, senderName, parts);
-                case "/myid" -> handleMyId(userId, senderName);
-                case "/start", "/help" -> handleHelp();
-                default -> sendMessage("Неизвестная команда: " + cmd);
+                case "/players":
+                    handlePlayers();
+                    break;
+                case "/kick":
+                    handleKick(userId, senderName, parts);
+                    break;
+//                case "/zwl":
+//                    handleZwlWhitelist(userId, senderName, parts);
+//                    break;
+                case "/myid":
+                    handleMyId(userId, senderName);
+                    break;
+                case "/start":
+                case "/help":
+                    handleHelp();
+                    break;
+                default:
+                    sendMessage("Неизвестная команда: " + cmd);
             }
             return;
         }
 
-        MinecraftServer srv = server;
-        if (srv == null) return;
+        if (server == null) {
+            return;
+        }
 
         if (hasDocument) {
-            com.google.gson.JsonObject doc = message.getAsJsonObject("document");
+            final JsonObject doc = message.getAsJsonObject("document");
             String mimeType = doc.has("mime_type") ? doc.get("mime_type").getAsString() : "";
-            boolean isImage = mimeType.startsWith("image/");
+            final boolean isImage = mimeType.startsWith("image/");
             if (!isImage) {
                 if (text != null && !text.isEmpty()) {
-                    String finalText1 = text;
-                    srv.execute(() -> {
-                        ksu.chat.net.ChatMessagePayload chatMsg = new ksu.chat.net.ChatMessagePayload(
-                                "[ТГ] " + senderName, finalText1, (byte) 1, "", null);
-                        for (ServerPlayer p : srv.getPlayerList().getPlayers()) {
-                            if (p.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
-                                p.connection.send(chatMsg);
-                            } else {
-                                p.sendSystemMessage(Component.literal("<")
-                                        .append(Component.literal("[ТГ] ").withStyle(s -> s.withColor(ChatFormatting.DARK_AQUA)))
-                                        .append(Component.literal(senderName + "> "))
-                                        .append(Component.literal(finalText1))
-                                );
-                            }
-                        }
-                    });
+                    broadcastText(senderName, text);
                 }
                 return;
             }
-            LOGGER.info("[KsuChat] Получено документ-изображение от {}: mime={}, имя={}",
+            LOGGER.info("[KsuChat] Получено изображение-документ от {}: mime={}, имя={}",
                     senderName, mimeType,
                     doc.has("file_name") ? doc.get("file_name").getAsString() : "?");
-            byte[] photoBytes = downloadDocumentFile(doc);
-            LOGGER.info("[KsuChat] ТГ->МК документ-фото от {}: байтов={}", senderName, photoBytes != null ? photoBytes.length : 0);
-            srv.execute(() -> {
-                String finalText = "";
-                if (caption != null && !caption.isEmpty()) {
-                    finalText = caption;
-                }
-                if (photoBytes != null) {
-                    java.util.UUID photoId = KsuChatMod.cachePhoto(photoBytes);
-                    String photoText = "[Фото HD] " + finalText;
-                    ksu.chat.net.ChatMessagePayload chatMsg = new ksu.chat.net.ChatMessagePayload(
-                            "[ТГ] " + senderName, photoText, (byte) 1, "", "/ksu_photo " + photoId);
-                    for (ServerPlayer p : srv.getPlayerList().getPlayers()) {
-                        if (p.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
-                            p.connection.send(chatMsg);
-                        } else {
-                            p.sendSystemMessage(Component.literal("<")
-                                    .append(Component.literal("[ТГ] ").withStyle(s -> s.withColor(ChatFormatting.DARK_AQUA)))
-                                    .append(Component.literal(senderName + "> "))
-                                    .append(Component.literal("[Фото, для просмотра нужен мод] ").withStyle(s -> s.withColor(ChatFormatting.GREEN)))
-                                    .append(Component.literal(finalText))
-                            );
-                        }
+            final byte[] photoBytes = downloadDocumentFile(doc);
+            LOGGER.info("[KsuChat] ТГ->МК фото-документ от {}: байтов={}",
+                    senderName, photoBytes != null ? photoBytes.length : 0);
+            final String finalCaption = caption == null ? "" : caption;
+            if (photoBytes != null) {
+                server.addScheduledTask(new Runnable() {
+                    @Override
+                    public void run() {
+                        broadcastPhoto(senderName, photoBytes, finalCaption);
                     }
-                } else {
-                    ksu.chat.net.ChatMessagePayload chatMsg = new ksu.chat.net.ChatMessagePayload(
-                            "[ТГ] " + senderName, "[Фото не загружено] " + finalText, (byte) 1, "", null);
-                    for (ServerPlayer p : srv.getPlayerList().getPlayers()) {
-                        if (p.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
-                            p.connection.send(chatMsg);
-                        } else {
-                            p.sendSystemMessage(Component.literal("<")
-                                    .append(Component.literal("[ТГ] ").withStyle(s -> s.withColor(ChatFormatting.DARK_AQUA)))
-                                    .append(Component.literal(senderName + "> "))
-                                    .append(Component.literal("[Фото не загружено] ").withStyle(s -> s.withColor(ChatFormatting.GREEN)))
-                                    .append(Component.literal(finalText))
-                            );
-                        }
-                    }
-                }
-            });
+                });
+            } else {
+                broadcastText(senderName, "[Фото не загружено] " + finalCaption);
+            }
             return;
         }
 
         if (hasPhoto) {
-            byte[] photoBytes = downloadPhoto(message);
-            LOGGER.info("[KsuChat] ТГ->МК фото от {}: байтов={}", senderName, photoBytes != null ? photoBytes.length : 0);
-            srv.execute(() -> {
-                String finalText = "";
-                if (caption != null && !caption.isEmpty()) {
-                    finalText = caption;
-                }
-                if (photoBytes != null) {
-                    java.util.UUID photoId = KsuChatMod.cachePhoto(photoBytes);
-                    String photoText = "[Фото] " + finalText;
-                    ksu.chat.net.ChatMessagePayload chatMsg = new ksu.chat.net.ChatMessagePayload(
-                            "[ТГ] " + senderName, photoText, (byte) 1, "", "/ksu_photo " + photoId);
-                    for (ServerPlayer p : srv.getPlayerList().getPlayers()) {
-                        if (p.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
-                            p.connection.send(chatMsg);
-                        } else {
-                            p.sendSystemMessage(Component.literal("<")
-                                    .append(Component.literal("[ТГ] ").withStyle(s -> s.withColor(ChatFormatting.DARK_AQUA)))
-                                    .append(Component.literal(senderName + "> "))
-                                    .append(Component.literal("[Фото, для просмотра нужен мод] ").withStyle(s -> s.withColor(ChatFormatting.GREEN)))
-                                    .append(Component.literal(finalText))
-                            );
-                        }
+            final byte[] photoBytes = downloadPhoto(message);
+            LOGGER.info("[KsuChat] ТГ->МК фото от {}: байтов={}",
+                    senderName, photoBytes != null ? photoBytes.length : 0);
+            final String finalCaption = caption == null ? "" : caption;
+            if (photoBytes != null) {
+                server.addScheduledTask(new Runnable() {
+                    @Override
+                    public void run() {
+                        broadcastPhoto(senderName, photoBytes, finalCaption);
                     }
-                } else {
-                    ksu.chat.net.ChatMessagePayload chatMsg = new ksu.chat.net.ChatMessagePayload(
-                            "[ТГ] " + senderName, "[Фото не загружено] " + finalText, (byte) 1, "", null);
-                    for (ServerPlayer p : srv.getPlayerList().getPlayers()) {
-                        if (p.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
-                            p.connection.send(chatMsg);
-                        } else {
-                            p.sendSystemMessage(Component.literal("<")
-                                    .append(Component.literal("[ТГ] ").withStyle(s -> s.withColor(ChatFormatting.DARK_AQUA)))
-                                    .append(Component.literal(senderName + "> "))
-                                    .append(Component.literal("[Фото не загружено] ").withStyle(s -> s.withColor(ChatFormatting.GREEN)))
-                                    .append(Component.literal(finalText))
-                                    );
-                        }
-                    }
-                }
-            });
+                });
+            } else {
+                broadcastText(senderName, "[Фото не загружено] " + finalCaption);
+            }
             return;
         }
 
-        if (!text.isEmpty()) {
-            String finalText2 = text;
-            srv.execute(() -> {
-                ksu.chat.net.ChatMessagePayload chatMsg = new ksu.chat.net.ChatMessagePayload(
-                        "[ТГ] " + senderName, finalText2, (byte) 1, "", null);
-                for (ServerPlayer p : srv.getPlayerList().getPlayers()) {
-                    if (p.connection.hasChannel(ResourceLocation.fromNamespaceAndPath(MODID, "sync_groups"))) {
-                        p.connection.send(chatMsg);
-                    } else {
-                        p.sendSystemMessage(Component.literal("<")
-                                .append(Component.literal("[ТГ] ").withStyle(s -> s.withColor(ChatFormatting.DARK_AQUA)))
-                                .append(Component.literal(senderName + "> "))
-                                .append(Component.literal(finalText2))
-                        );
-                    }
-                }
-            });
+        if (text != null && !text.isEmpty()) {
+            broadcastText(senderName, text);
             LOGGER.info("[KsuChat] ТГ->МК сообщение от {}: {}", senderName, text);
         }
     }
 
-    private byte[] downloadDocumentFile(com.google.gson.JsonObject document) {
-        try {
-            String fileId = document.get("file_id").getAsString();
-            String getUrl = API_BASE + config.getBotToken() + "/getFile?file_id=" + fileId;
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(getUrl))
-                    .timeout(Duration.ofSeconds(10))
-                    .GET()
-                    .build();
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            com.google.gson.JsonObject json = com.google.gson.JsonParser.parseString(response.body()).getAsJsonObject();
-            if (json.get("ok").getAsBoolean()) {
-                String filePath = json.getAsJsonObject("result").get("file_path").getAsString();
-                String downloadUrl = "https://api.telegram.org/file/bot" + config.getBotToken() + "/" + filePath;
-                HttpRequest dl = HttpRequest.newBuilder()
-                        .uri(URI.create(downloadUrl))
-                        .timeout(Duration.ofSeconds(30))
-                        .GET()
-                        .build();
-                HttpResponse<byte[]> dlResponse = httpClient.send(dl, HttpResponse.BodyHandlers.ofByteArray());
-                LOGGER.info("[KsuChat] Загружен документ: {} байтов (file_path={})", dlResponse.body().length, filePath);
-                return dlResponse.body();
-            }
-        } catch (Exception e) {
-            LOGGER.warn("[KsuChat] Ошибка загрузки документа: {}", e.getMessage());
-        }
-        return null;
-    }
-
-    private byte[] downloadPhoto(com.google.gson.JsonObject message) {
-        try {
-            com.google.gson.JsonArray photos = message.getAsJsonArray("photo");
-            com.google.gson.JsonObject largest = photos.get(photos.size() - 1).getAsJsonObject();
-            com.google.gson.JsonObject last = photos.get(photos.size() - 1).getAsJsonObject();
-            LOGGER.info("[KsuChat] Фото: {}x{}, {} байтов, file_id={}",
-                    last.get("width").getAsInt(), last.get("height").getAsInt(),
-                    last.has("file_size") ? last.get("file_size").getAsInt() : "?",
-                    last.get("file_id").getAsString().substring(0, Math.min(20, last.get("file_id").getAsString().length())) + "...");
-            String fileId = largest.get("file_id").getAsString();
-
-            String getUrl = API_BASE + config.getBotToken() + "/getFile?file_id=" + fileId;
-            HttpRequest request = HttpRequest.newBuilder()
-                    .uri(URI.create(getUrl))
-                    .timeout(Duration.ofSeconds(10))
-                    .GET()
-                    .build();
-            HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-            com.google.gson.JsonObject json = com.google.gson.JsonParser.parseString(response.body()).getAsJsonObject();
-            if (json.get("ok").getAsBoolean()) {
-                String filePath = json.getAsJsonObject("result").get("file_path").getAsString();
-                String downloadUrl = "https://api.telegram.org/file/bot" + config.getBotToken() + "/" + filePath;
-                HttpRequest dl = HttpRequest.newBuilder()
-                        .uri(URI.create(downloadUrl))
-                        .timeout(Duration.ofSeconds(15))
-                        .GET()
-                        .build();
-                HttpResponse<byte[]> dlResponse = httpClient.send(dl, HttpResponse.BodyHandlers.ofByteArray());
-                LOGGER.info("[KsuChat] Загружено фото: {} байтов", dlResponse.body().length);
-                return dlResponse.body();
-            }
-        } catch (Exception e) {
-            LOGGER.warn("[KsuChat] Ошибка загрузки фото: {}", e.getMessage());
-        }
-        return null;
-    }
+    // ------------------------------------------------------------------
+    // Команды Telegram
+    // ------------------------------------------------------------------
 
     private void handlePlayers() {
-        MinecraftServer srv = server;
+        final MinecraftServer srv = server;
         if (srv == null) {
             sendMessage("Сервер не запущен.");
             return;
         }
-        List<ServerPlayer> players = srv.getPlayerList().getPlayers();
-        if (players.isEmpty()) {
-            sendMessage("Нет игроков на сервере.");
-            return;
-        }
-        StringBuilder sb = new StringBuilder("Игроки онлайн (" + players.size() + "):\n");
-        for (ServerPlayer p : players) {
-            sb.append("  - ").append(p.getName().getString()).append("\n");
-        }
-        sendMessage(sb.toString());
-    }
-
-    private void handleStop(long userId, String username) {
-        if (!config.isAdmin(userId)) {
-            sendMessage("Доступ запрещён. Только для админов.");
-            return;
-        }
-        MinecraftServer srv = server;
-        if (srv == null) {
-            sendMessage("Сервер не запущен.");
-            return;
-        }
-        sendMessage("Сервер выключается @" + username + "...");
-        executor.execute(() -> srv.execute(srv::close));
-    }
-
-    private void handleRestart(long userId, String username) {
-        if (!config.isAdmin(userId)) {
-            sendMessage("Доступ запрещён. Только для админов.");
-            return;
-        }
-        MinecraftServer srv = server;
-        if (srv == null) {
-            sendMessage("Сервер не запущен.");
-            return;
-        }
-        sendMessage("Сервер перезагружается @" + username + "...");
-        executor.execute(() -> srv.execute(() -> srv.halt(true)));
+        srv.addScheduledTask(new Runnable() {
+            @Override
+            public void run() {
+                java.util.List<EntityPlayerMP> players = srv.getPlayerList().getPlayers();
+                if (players.isEmpty()) {
+                    sendMessage("Нет игроков на сервере.");
+                    return;
+                }
+                StringBuilder sb = new StringBuilder("Игроки онлайн (" + players.size() + "):\n");
+                for (EntityPlayerMP p : players) {
+                    sb.append("  - ").append(p.getName()).append("\n");
+                }
+                sendMessage(sb.toString());
+            }
+        });
     }
 
     private void handleKick(long userId, String username, String[] parts) {
@@ -514,166 +369,306 @@ public class TelegramBot {
             return;
         }
         if (parts.length < 2) {
-            sendMessage("Использование: /kick &lt;ник&gt;");
+            sendMessage("Использование: /kick <ник>");
             return;
         }
-        String target = parts[1];
-        MinecraftServer srv = server;
+        final String target = parts[1];
+        final String admin = username;
+        final MinecraftServer srv = server;
         if (srv == null) {
             sendMessage("Сервер не запущен.");
             return;
         }
-        srv.execute(() -> {
-            ServerPlayer player = srv.getPlayerList().getPlayerByName(target);
-            if (player == null) {
-                sendMessage("Игрок " + target + " не найден на сервере.");
-                return;
-            }
-            player.connection.disconnect(Component.literal("Кикнут админом из Telegram"));
-            sendMessage("Игрок " + target + " кикнут @" + username);
-        });
-    }
-
-    private void handleBan(long userId, String username, String[] parts) {
-        if (!config.isAdmin(userId)) {
-            sendMessage("Доступ запрещён. Только для админов.");
-            return;
-        }
-        if (parts.length < 2) {
-            sendMessage("Использование: /ban &lt;ник&gt;");
-            return;
-        }
-        String target = parts[1];
-        MinecraftServer srv = server;
-        if (srv == null) {
-            sendMessage("Сервер не запущен.");
-            return;
-        }
-        srv.execute(() -> {
-            try {
-                ServerPlayer player = srv.getPlayerList().getPlayerByName(target);
-                GameProfile profile = player != null ? player.getGameProfile() : null;
-                if (profile == null) {
-                    sendMessage("Игрок " + target + " не найден на сервере. Невозможно забанить.");
+        srv.addScheduledTask(new Runnable() {
+            @Override
+            public void run() {
+                EntityPlayerMP player = srv.getPlayerList().getPlayerByUsername(target);
+                if (player == null) {
+                    sendMessage("Игрок " + target + " не найден на сервере.");
                     return;
                 }
-                player.connection.disconnect(Component.literal("Забанен админом из Telegram"));
-                srv.getPlayerList().getBans().add(new UserBanListEntry(profile, null, "Telegram", null, "Забанен @" + username));
-                sendMessage("Игрок " + target + " забанен @" + username);
-            } catch (Exception e) {
-                LOGGER.error("[KsuChat] Ошибка при бане", e);
-                sendMessage("Ошибка при бане: " + e.getMessage());
+                player.connection.disconnect(new TextComponentString("Кикнут админом из Telegram"));
+                sendMessage("Игрок " + target + " кикнут @" + admin);
             }
         });
     }
 
-    private void handleUnban(long userId, String username, String[] parts) {
-        if (!config.isAdmin(userId)) {
-            sendMessage("Доступ запрещён. Только для админов.");
-            return;
-        }
-        if (parts.length < 2) {
-            sendMessage("Использование: /unban &lt;ник&gt;");
-            return;
-        }
-        String target = parts[1];
-        MinecraftServer srv = server;
-        if (srv == null) {
-            sendMessage("Сервер не запущен.");
-            return;
-        }
-        srv.execute(() -> {
-            try {
-                var banList = srv.getPlayerList().getBans();
-                var entries = new ArrayList<>(banList.getEntries());
-                boolean found = false;
-                for (var entry : entries) {
-                    if (entry.getDisplayName().getString().equalsIgnoreCase(target)) {
-                        banList.remove(entry);
-                        found = true;
-                    }
-                }
-                if (found) {
-                    sendMessage("Игрок " + target + " разбанен @" + username);
-                } else {
-                    sendMessage("Бан для " + target + " не найден");
-                }
-            } catch (Exception e) {
-                LOGGER.error("[KsuChat] Ошибка при разбане", e);
-                sendMessage("Ошибка при разбане: " + e.getMessage());
-            }
-        });
-    }
+//    private void handleZwlWhitelist(long userId, String username, String[] parts) {
+//        if (!config.isAdmin(userId)) {
+//            sendMessage("Доступ запрещён. Только для админов.");
+//            return;
+//        }
+//        if (parts.length < 3) {
+//            sendMessage("Использование: /zwl add <ник> ИЛИ /zwl remove <ник>");
+//            return;
+//        }
+//        final String action = parts[1].toLowerCase();
+//        final String target = parts[2];
+//        final String admin = username;
+//        final MinecraftServer srv = server;
+//        if (srv == null) {
+//            sendMessage("Сервер не запущен.");
+//            return;
+//        }
+//        srv.addScheduledTask(new Runnable() {
+//            @Override
+//            public void run() {
+//                try {
+//                    if ("add".equals(action)) {
+//                        GameProfile profile = resolveProfile(srv, target);
+//                        srv.getPlayerList().addWhitelistedPlayer(profile);
+//                        srv.getPlayerList().reloadWhitelist();
+//                        sendMessage("Игрок " + target + " добавлен в вайтлист @" + admin);
+//                    } else if ("remove".equals(action)) {
+//                        GameProfile profile = resolveProfile(srv, target);
+//                        srv.getPlayerList().removePlayerFromWhitelist(profile);
+//                        srv.getPlayerList().reloadWhitelist();
+//                        sendMessage("Игрок " + target + " удалён из вайтлиста @" + admin);
+//                    } else {
+//                        sendMessage("Использование: /zwl add <ник> ИЛИ /zwl remove <ник>");
+//                    }
+//                } catch (Exception e) {
+//                    LOGGER.error("[KsuChat] Ошибка вайтлиста", e);
+//                    sendMessage("Ошибка: " + e.getMessage());
+//                }
+//            }
+//        });
+//    }
 
-    private void handleZwlWhitelist(long userId, String username, String[] parts) {
-        if (!config.isAdmin(userId)) {
-            sendMessage("Доступ запрещён. Только для админов.");
-            return;
+    private static GameProfile resolveProfile(MinecraftServer srv, String name) {
+        EntityPlayerMP online = srv.getPlayerList().getPlayerByUsername(name);
+        if (online != null) {
+            return online.getGameProfile();
         }
-        if (parts.length < 3) {
-            sendMessage("Использование: /zwl add &lt;ник&gt; ИЛИ /zwl remove &lt;ник&gt;");
-            return;
+        GameProfile cached = srv.getPlayerProfileCache().getGameProfileForUsername(name);
+        if (cached != null) {
+            return cached;
         }
-        String action = parts[1].toLowerCase();
-        String target = parts[2];
-        MinecraftServer srv = server;
-        CommandSourceStack source = server.createCommandSourceStack();
-        if (srv == null) {
-            sendMessage("Сервер не запущен.");
-            return;
-        }
-        srv.execute(() -> {
-            try {
-                switch (action) {
-                    case "add" -> {
-                        server.getCommands().performPrefixedCommand(source, "/zwl add " + username);
-                        sendMessage("Игрок " + target + " добавлен в вайтлист @" + username);
-                    }
-                    case "remove" -> {
-                        server.getCommands().performPrefixedCommand(source, "/zwl remove " + username);
-                            sendMessage("Игрок " + target + " удалён из вайтлиста @" + username);
-                    }
-                    default -> sendMessage("Использование: /zwl add &lt;ник&gt; ИЛИ /zwl remove &lt;ник&gt;");
-                }
-            } catch (Exception e) {
-                LOGGER.error("[KsuChat] Ошибка вайтлиста", e);
-                sendMessage("Ошибка: " + e.getMessage());
-            }
-        });
+        return new GameProfile(java.util.UUID.nameUUIDFromBytes(
+                ("OfflinePlayer:" + name).getBytes(StandardCharsets.UTF_8)), name);
     }
 
     private void handleMyId(long userId, String username) {
         boolean admin = config.isAdmin(userId);
-        sendMessage("Ваш Telegram ID: " + userId + "\nUsername: @" + username + "\nАдмин: " + (admin ? "ДА" : "НЕТ") + "\n\nДобавьте этот ID в telegramAdmins в config/ksuchat.toml");
+        sendMessage("Ваш Telegram ID: " + userId + "\nUsername: @" + username + "\nАдмин: "
+                + (admin ? "ДА" : "НЕТ") + "\n\nДобавьте этот ID в telegramAdmins в config/ksuchat.toml");
     }
 
     private void handleHelp() {
-        sendMessage("""
-            KsuChat Команды:
-            /help - Показать эту справку
-            /myid - Показать ваш Telegram ID (для настройки)
-            /players - Список игроков онлайн
-            /kick [ник] - Кикнуть игрока (админ)
-            /zwl [add/remove] [ник] - Добавить или удалить из вайтлиста (админ)
-            """);
-//            /stop - Остановить сервер (админ)
-//            /restart - Перезагрузить сервер (админ)
-//            /ban *ник* - Забанить игрока (админ)
-//            /unban *ник* - Разбанить игрока (админ)
+        sendMessage("KsuChat Команды:\n"
+                + "/help - Показать эту справку\n"
+                + "/myid - Показать ваш Telegram ID (для настройки)\n"
+                + "/players - Список игроков онлайн\n"
+                + "/kick [ник] - Кикнуть игрока (админ)\n"
+                + "/zwl [add/remove] [ник] - Добавить или удалить из вайтлиста (админ)\n");
     }
 
-    private void post(String method, String jsonBody) throws Exception {
-        HttpRequest request = HttpRequest.newBuilder()
-                .uri(URI.create(API_BASE + config.getBotToken() + "/" + method))
-                .header("Content-Type", "application/json")
-                .timeout(Duration.ofSeconds(15))
-                .POST(HttpRequest.BodyPublishers.ofString(jsonBody))
-                .build();
-        HttpResponse<String> response = httpClient.send(request, HttpResponse.BodyHandlers.ofString());
-        com.google.gson.JsonObject json = com.google.gson.JsonParser.parseString(response.body()).getAsJsonObject();
-        if (!json.get("ok").getAsBoolean()) {
-            String desc = json.has("description") ? json.get("description").getAsString() : "неизвестная ошибка";
-            LOGGER.error("[KsuChat] Ошибка Telegram API {}: {}", method, desc);
+    // ------------------------------------------------------------------
+    // Загрузка файлов из Telegram
+    // ------------------------------------------------------------------
+
+    private byte[] downloadDocumentFile(JsonObject document) {
+        try {
+            String fileId = document.get("file_id").getAsString();
+            return downloadFile(fileId);
+        } catch (Exception e) {
+            LOGGER.warn("[KsuChat] Ошибка загрузки документа: {}", e.getMessage());
         }
+        return null;
+    }
+
+    private byte[] downloadPhoto(JsonObject message) {
+        try {
+            JsonArray photos = message.getAsJsonArray("photo");
+            if (photos.size() == 0) {
+                return null;
+            }
+            JsonObject largest = photos.get(photos.size() - 1).getAsJsonObject();
+            LOGGER.info("[KsuChat] Фото: {}x{}, {} байтов",
+                    largest.has("width") ? largest.get("width").getAsInt() : 0,
+                    largest.has("height") ? largest.get("height").getAsInt() : 0,
+                    largest.has("file_size") ? largest.get("file_size").getAsInt() : 0);
+            return downloadFile(largest.get("file_id").getAsString());
+        } catch (Exception e) {
+            LOGGER.warn("[KsuChat] Ошибка загрузки фото: {}", e.getMessage());
+        }
+        return null;
+    }
+
+    private byte[] downloadFile(String fileId) throws IOException {
+        String getUrl = API_BASE + config.getBotToken() + "/getFile?file_id="
+                + URLEncoder.encode(fileId, "UTF-8");
+        String response = get(getUrl);
+        JsonObject json = new JsonParser().parse(response).getAsJsonObject();
+        if (!json.get("ok").getAsBoolean()) {
+            LOGGER.warn("[KsuChat] Telegram не отдал файл: {}", response);
+            return null;
+        }
+        String filePath = json.getAsJsonObject("result").get("file_path").getAsString();
+        String downloadUrl = "https://api.telegram.org/file/bot" + config.getBotToken() + "/" + filePath;
+        byte[] data = getBytes(downloadUrl);
+        LOGGER.info("[KsuChat] Загружен файл: {} байтов (file_path={})", data.length, filePath);
+        return data;
+    }
+
+    // ------------------------------------------------------------------
+    // Рассылка сообщений в игру
+    // ------------------------------------------------------------------
+
+    private void broadcastText(final String sender, final String text) {
+        final MinecraftServer srv = server;
+        if (srv == null) {
+            return;
+        }
+        srv.addScheduledTask(new Runnable() {
+            @Override
+            public void run() {
+                TextComponentString name = new TextComponentString(sender);
+                name.getStyle().setColor(TextFormatting.AQUA);
+                TextComponentString line = new TextComponentString("[ТГ] ");
+                line.getStyle().setColor(TextFormatting.DARK_AQUA);
+                line.appendSibling(name);
+                line.appendSibling(new TextComponentString(": " + text));
+                srv.getPlayerList().sendMessage(line);
+            }
+        });
+    }
+
+    /** Вызывать только из основного потока сервера. */
+    private void broadcastPhoto(String sender, byte[] data, String caption) {
+        MinecraftServer srv = server;
+        if (srv == null) {
+            return;
+        }
+        java.util.UUID photoId = KsuChatMod.cachePhoto(data);
+
+        TextComponentString name = new TextComponentString(sender);
+        name.getStyle().setColor(TextFormatting.AQUA);
+        TextComponentString line = new TextComponentString("[ТГ] ");
+        line.getStyle().setColor(TextFormatting.DARK_AQUA);
+        line.appendSibling(name);
+        line.appendSibling(new TextComponentString(": "));
+
+        TextComponentString photo = new TextComponentString("[Фото]");
+        photo.getStyle().setColor(TextFormatting.GREEN);
+        photo.getStyle().setClickEvent(new ClickEvent(ClickEvent.Action.RUN_COMMAND,
+                "/ksu_photo " + photoId));
+        line.appendSibling(photo);
+
+        if (caption != null && !caption.isEmpty()) {
+            line.appendSibling(new TextComponentString(" " + caption));
+        }
+        srv.getPlayerList().sendMessage(line);
+    }
+
+    // ------------------------------------------------------------------
+    // HTTP-помощники (HttpURLConnection)
+    // ------------------------------------------------------------------
+
+    private Proxy buildProxy() {
+        String proxyType = config.getProxyType();
+        String proxyHost = config.getProxyHost();
+        int proxyPort = config.getProxyPort();
+        if (proxyType == null || proxyType.isEmpty() || proxyHost == null || proxyHost.isEmpty()) {
+            return Proxy.NO_PROXY;
+        }
+        if ("socks".equalsIgnoreCase(proxyType)) {
+            return new Proxy(Proxy.Type.SOCKS, new InetSocketAddress(proxyHost, proxyPort));
+        }
+        if ("http".equalsIgnoreCase(proxyType)) {
+            return new Proxy(Proxy.Type.HTTP, new InetSocketAddress(proxyHost, proxyPort));
+        }
+        LOGGER.warn("[KsuChat] Неизвестный тип прокси: {}. Используйте 'socks' или 'http'.", proxyType);
+        return Proxy.NO_PROXY;
+    }
+
+    private HttpURLConnection openConnection(String url, String method) throws IOException {
+        HttpURLConnection connection = (HttpURLConnection) new URL(url).openConnection(buildProxy());
+        connection.setRequestMethod(method);
+        connection.setConnectTimeout(CONNECT_TIMEOUT);
+        connection.setReadTimeout(READ_TIMEOUT);
+        connection.setRequestProperty("User-Agent", "KsuChat/1.0");
+        if (sslSocketFactory != null && connection instanceof HttpsURLConnection) {
+            HttpsURLConnection https = (HttpsURLConnection) connection;
+            https.setSSLSocketFactory(sslSocketFactory);
+            if (hostnameVerifier != null) {
+                https.setHostnameVerifier(hostnameVerifier);
+            }
+        }
+        return connection;
+    }
+
+    private String get(String url) throws IOException {
+        HttpURLConnection connection = null;
+        try {
+            connection = openConnection(url, "GET");
+            return readResponse(connection);
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
+    }
+
+    private byte[] getBytes(String url) throws IOException {
+        HttpURLConnection connection = null;
+        try {
+            connection = openConnection(url, "GET");
+            int code = connection.getResponseCode();
+            if (code < 200 || code >= 300) {
+                throw new IOException("HTTP " + code);
+            }
+            InputStream in = connection.getInputStream();
+            ByteArrayOutputStream out = new ByteArrayOutputStream();
+            byte[] buffer = new byte[8192];
+            int read;
+            while ((read = in.read(buffer)) != -1) {
+                out.write(buffer, 0, read);
+            }
+            in.close();
+            return out.toByteArray();
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
+    }
+
+    private String postJson(String url, String jsonBody) throws IOException {
+        HttpURLConnection connection = null;
+        try {
+            connection = openConnection(url, "POST");
+            connection.setDoOutput(true);
+            connection.setRequestProperty("Content-Type", "application/json; charset=UTF-8");
+            byte[] payload = jsonBody.getBytes(StandardCharsets.UTF_8);
+            connection.setFixedLengthStreamingMode(payload.length);
+            OutputStream out = connection.getOutputStream();
+            out.write(payload);
+            out.flush();
+            out.close();
+            return readResponse(connection);
+        } finally {
+            if (connection != null) {
+                connection.disconnect();
+            }
+        }
+    }
+
+    private String readResponse(HttpURLConnection connection) throws IOException {
+        int code = connection.getResponseCode();
+        InputStream in = code >= 200 && code < 400
+                ? connection.getInputStream()
+                : connection.getErrorStream();
+        if (in == null) {
+            throw new IOException("HTTP " + code);
+        }
+        ByteArrayOutputStream out = new ByteArrayOutputStream();
+        byte[] buffer = new byte[8192];
+        int read;
+        while ((read = in.read(buffer)) != -1) {
+            out.write(buffer, 0, read);
+        }
+        in.close();
+        return new String(out.toByteArray(), StandardCharsets.UTF_8);
     }
 }

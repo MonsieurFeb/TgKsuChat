@@ -1,0 +1,16 @@
+[
+{
+  "modid": "ksuchat",
+  "name": "KsuChat",
+  "description": "Synchronizes Minecraft chat with Telegram in both directions and shows Telegram photos in-game.",
+  "version": "${version}",
+  "mcversion": "${mcversion}",
+  "url": "",
+  "updateUrl": "",
+  "authorList": ["KsuChat"],
+  "credits": "Inspired by Telegram Chain and TgBridge",
+  "logoFile": "",
+  "screenshots": [],
+  "dependencies": []
+}
+]

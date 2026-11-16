@@ -1,110 +1,108 @@
 package ksu.chat.client;
 
-import com.mojang.blaze3d.systems.RenderSystem;
-import com.mojang.blaze3d.platform.NativeImage;
-import com.mojang.logging.LogUtils;
-import net.minecraft.client.gui.GuiGraphics;
-import net.minecraft.client.gui.screens.Screen;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.Gui;
+import net.minecraft.client.gui.GuiScreen;
+import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.client.renderer.texture.DynamicTexture;
-import net.minecraft.network.chat.Component;
-import net.minecraft.resources.ResourceLocation;
-import org.slf4j.Logger;
+import net.minecraft.util.ResourceLocation;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import javax.imageio.ImageIO;
 import java.awt.image.BufferedImage;
 import java.io.ByteArrayInputStream;
-import java.io.ByteArrayOutputStream;
+import java.util.concurrent.atomic.AtomicInteger;
 
-public class PhotoScreen extends Screen {
-    private static final Logger LOGGER = LogUtils.getLogger();
+/**
+ * Полноэкранный просмотр фотографии, полученной из Telegram.
+ */
+public class PhotoScreen extends GuiScreen {
+    private static final Logger LOGGER = LogManager.getLogger("KsuChat");
+    private static final AtomicInteger TEXTURE_SEQ = new AtomicInteger(0);
+
     private final byte[] imageData;
-    private DynamicTexture dynamicTexture;
     private ResourceLocation textureLocation;
     private int imageWidth;
     private int imageHeight;
     private boolean loaded = false;
 
     public static void open(byte[] data) {
-        net.minecraft.client.Minecraft.getInstance().setScreen(new PhotoScreen(data));
+        Minecraft.getMinecraft().displayGuiScreen(new PhotoScreen(data));
     }
 
     public PhotoScreen(byte[] imageData) {
-        super(Component.literal("Фото"));
         this.imageData = imageData;
     }
 
     @Override
-    protected void init() {
-        super.init();
+    public void initGui() {
+        super.initGui();
         loadTexture();
     }
 
     private void loadTexture() {
         try {
-            BufferedImage bimg = ImageIO.read(new ByteArrayInputStream(imageData));
-            if (bimg == null) {
-                LOGGER.warn("[KsuChat] ImageIO вернул null");
+            BufferedImage image = ImageIO.read(new ByteArrayInputStream(imageData));
+            if (image == null) {
+                LOGGER.warn("[KsuChat] ImageIO не смог прочитать изображение");
                 return;
             }
 
-            int w = bimg.getWidth();
-            int h = bimg.getHeight();
-
-            ByteArrayOutputStream pngOut = new ByteArrayOutputStream();
-            ImageIO.write(bimg, "png", pngOut);
-            byte[] pngBytes = pngOut.toByteArray();
-            NativeImage nativeImage = NativeImage.read(new ByteArrayInputStream(pngBytes));
-
-            imageWidth = nativeImage.getWidth();
-            imageHeight = nativeImage.getHeight();
+            imageWidth = image.getWidth();
+            imageHeight = image.getHeight();
+            if (imageWidth <= 0 || imageHeight <= 0) {
+                return;
+            }
 
             if (textureLocation != null) {
-                net.minecraft.client.Minecraft.getInstance().getTextureManager().release(textureLocation);
+                mc.getTextureManager().deleteTexture(textureLocation);
             }
-            dynamicTexture = new DynamicTexture(nativeImage);
-            textureLocation = ResourceLocation.fromNamespaceAndPath("ksuchat", "photo");
-            net.minecraft.client.Minecraft.getInstance().getTextureManager().register(textureLocation, dynamicTexture);
 
+            DynamicTexture texture = new DynamicTexture(image);
+            textureLocation = new ResourceLocation("ksuchat",
+                    "photo_" + TEXTURE_SEQ.incrementAndGet());
+            mc.getTextureManager().loadTexture(textureLocation, texture);
             loaded = true;
-            LOGGER.info("[KsuChat] Фото загружено: {}x{} (источник {}x{})", imageWidth, imageHeight, w, h);
+            LOGGER.info("[KsuChat] Фото загружено: {}x{}", imageWidth, imageHeight);
         } catch (Exception e) {
             LOGGER.warn("[KsuChat] Ошибка загрузки фото: {}", e.getMessage(), e);
         }
     }
 
     @Override
-    public void renderBackground(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
-    }
+    public void drawScreen(int mouseX, int mouseY, float partialTicks) {
+        drawRect(0, 0, width, height, 0xFF000000);
 
-    @Override
-    public void render(GuiGraphics guiGraphics, int mouseX, int mouseY, float partialTick) {
-        guiGraphics.fill(0, 0, this.width, this.height, 0xFF000000);
+        if (loaded && textureLocation != null) {
+            float maxW = width * 0.9F;
+            float maxH = height * 0.9F;
+            float scale = Math.min(maxW / imageWidth, maxH / imageHeight);
+            int drawW = Math.max(1, (int) (imageWidth * scale));
+            int drawH = Math.max(1, (int) (imageHeight * scale));
+            int x = (width - drawW) / 2;
+            int y = (height - drawH) / 2;
 
-        if (loaded && dynamicTexture != null) {
-            int maxW = (int) (this.width * 0.9);
-            int maxH = (int) (this.height * 0.9);
-            float scale = Math.min((float) maxW / imageWidth, (float) maxH / imageHeight);
-            int drawW = (int) (imageWidth * scale);
-            int drawH = (int) (imageHeight * scale);
-            int x = (this.width - drawW) / 2;
-            int y = (this.height - drawH) / 2;
-
-            com.mojang.blaze3d.vertex.PoseStack poseStack = guiGraphics.pose();
-            poseStack.pushPose();
-            poseStack.translate(x, y, 0);
-            poseStack.scale(scale, scale, 1);
-            RenderSystem.enableBlend();
-            guiGraphics.blit(textureLocation, 0, 0, 0, 0, imageWidth, imageHeight, imageWidth, imageHeight);
-            poseStack.popPose();
+            GlStateManager.enableBlend();
+            GlStateManager.color(1.0F, 1.0F, 1.0F, 1.0F);
+            mc.getTextureManager().bindTexture(textureLocation);
+            Gui.drawModalRectWithCustomSizedTexture(x, y, 0, 0, drawW, drawH,
+                    imageWidth, imageHeight);
+            GlStateManager.disableBlend();
         } else {
-            guiGraphics.drawCenteredString(this.font, "Загрузка...", this.width / 2, this.height / 2, 0xFFFFFF);
+            drawCenteredString(fontRenderer, "Загрузка...", width / 2, height / 2, 0xFFFFFF);
         }
 
-        super.render(guiGraphics, mouseX, mouseY, partialTick);
+        super.drawScreen(mouseX, mouseY, partialTicks);
     }
 
     @Override
-    public boolean shouldCloseOnEsc() {
-        return true;
+    public void onGuiClosed() {
+        super.onGuiClosed();
+        if (textureLocation != null) {
+            mc.getTextureManager().deleteTexture(textureLocation);
+            textureLocation = null;
+        }
+        loaded = false;
     }
 }
