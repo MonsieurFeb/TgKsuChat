@@ -10,10 +10,6 @@ import java.nio.file.Files;
 import java.util.ArrayList;
 import java.util.List;
 
-/**
- * Простой конфиг в формате key = value (файл config/ksuchat.toml).
- * Оставлены только настройки пересылки сообщений и прокси.
- */
 public class ModConfig {
     private static final Logger LOGGER = LogManager.getLogger("KsuChat");
 
@@ -25,6 +21,19 @@ public class ModConfig {
 
     private boolean forwardChat = true;
     private String chatFormat = "<%s> %s";
+
+    private boolean forwardJoinLeave = true;
+    private String joinFormat = "[+] %s зашёл на сервер";
+    private String leaveFormat = "[-] %s вышел с сервера";
+
+    private boolean forwardDeaths = true;
+    private String deathFormat = "[Смерть] %s";
+
+    private boolean forwardAdvancements = true;
+    private String advancementFormat = "[Достижение] %s получил достижение [%s]";
+
+    private String serverStartMessage = "Сервер запущен!";
+    private String serverStopMessage = "Сервер останавливается...";
 
     private String proxyType = "";
     private String proxyHost = "";
@@ -52,10 +61,18 @@ public class ModConfig {
 
     private static String cleanValue(String value) {
         value = value.trim();
-        if (value.startsWith("\"") && value.endsWith("\"") && value.length() >= 2) {
+        if (value.startsWith("\"") && value.endsWith("\"")) {
             value = value.substring(1, value.length() - 1);
         }
         return value;
+    }
+
+    private static String cleanListItem(String item) {
+        item = item.trim();
+        if (item.startsWith("\"") && item.endsWith("\"")) {
+            item = item.substring(1, item.length() - 1);
+        }
+        return item;
     }
 
     private void load() throws IOException {
@@ -123,30 +140,45 @@ public class ModConfig {
     }
 
     private void save() throws IOException {
-        StringBuilder content = new StringBuilder();
-        content.append("# ============================================\n");
-        content.append("# Конфигурация KsuChat\n");
-        content.append("# ============================================\n\n");
-        content.append("# Токен Telegram Bot API от @BotFather\n");
-        content.append("botToken = \"\"\n\n");
-        content.append("# ID чата Telegram, куда будут отправляться сообщения\n");
-        content.append("chatId = 0\n\n");
-        content.append("# Список Telegram ID пользователей с доступом админа\n");
-        content.append("# Узнать свой ID можно командой /myid в боте\n");
-        content.append("# Пример: telegramAdmins = [123456789, 987654321]\n");
-        content.append("telegramAdmins = []\n\n");
-        content.append("# ---- Пересылка сообщений ----\n");
-        content.append("# Minecraft -> Telegram\n");
-        content.append("forwardChat = true\n");
-        content.append("chatFormat = \"<%s> %s\"\n\n");
-        content.append("# ---- Настройки прокси ----\n");
-        content.append("# Если Telegram заблокирован, установите proxyType в \"socks\" или \"http\"\n");
-        content.append("# Оставьте пустым для прямого подключения\n");
-        content.append("proxyType = \"\"\n");
-        content.append("proxyHost = \"\"\n");
-        content.append("proxyPort = 1080\n");
+        String content = "# ============================================\n" +
+                "# Конфигурация KsuChat\n" +
+                "# ============================================\n\n" +
+                "# Токен Telegram Bot API от @BotFather\n" +
+                "botToken = \"\"\n\n" +
+                "# ID чата Telegram, куда будут отправляться сообщения\n" +
+                "chatId = 0\n\n" +
+                "# Список Telegram ID пользователей с доступом админа\n" +
+                "# Узнать свой ID можно командой /myid в боте\n" +
+                "# Пример: telegramAdmins = [123456789, 987654321]\n" +
+                "telegramAdmins = []\n\n" +
+                "# ---- Пересылка сообщений ----\n" +
+                "# Minecraft -> Telegram\n" +
+                "forwardChat = true\n" +
+                "chatFormat = \"<%s> %s\"\n\n" +
+                "# ---- Настройки прокси ----\n" +
+                "# Если Telegram заблокирован, установите proxyType в \"socks\" или \"http\"\n" +
+                "# Оставьте пустым для прямого подключения\n" +
+                "proxyType = \"\"\n" +
+                "proxyHost = \"\"\n" +
+                "proxyPort = 1080\n" +
+                "# ---- Сообщения чата ----\n" +
+                "forwardChat = true\n" +
+                "chatFormat = \"<%s> %s\"\n\n" +
+                "# ---- Вход/Выход ----\n" +
+                "forwardJoinLeave = true\n" +
+                "joinFormat = \"[+] %s зашёл на сервер\"\n" +
+                "leaveFormat = \"[-] %s вышел с сервера\"\n\n" +
+                "# ---- Смерти ----\n" +
+                "forwardDeaths = true\n" +
+                "deathFormat = \"[Смерть] %s\"\n\n" +
+                "# ---- Достижения ----\n" +
+                "forwardAdvancements = true\n" +
+                "advancementFormat = \"[Достижение] %s получил достижение [%s]\"\n\n" +
+                "# ---- Жизненный цикл сервера ----\n" +
+                "serverStartMessage = \"Сервер запущен!\"\n" +
+                "serverStopMessage = \"Сервер останавливается...\"\n";
 
-        Files.write(configFile.toPath(), content.toString().getBytes(StandardCharsets.UTF_8));
+        Files.write(configFile.toPath(), content.getBytes(StandardCharsets.UTF_8));
         LOGGER.info("[KsuChat] Конфигурация по умолчанию создана в {}", configFile);
     }
 
@@ -161,6 +193,16 @@ public class ModConfig {
     public List<Long> getTelegramAdmins() {
         return telegramAdmins;
     }
+
+    public boolean isForwardJoinLeave() { return forwardJoinLeave; }
+    public String getJoinFormat() { return joinFormat; }
+    public String getLeaveFormat() { return leaveFormat; }
+    public boolean isForwardDeaths() { return forwardDeaths; }
+    public String getDeathFormat() { return deathFormat; }
+    public boolean isForwardAdvancements() { return forwardAdvancements; }
+    public String getAdvancementFormat() { return advancementFormat; }
+    public String getServerStartMessage() { return serverStartMessage; }
+    public String getServerStopMessage() { return serverStopMessage; }
 
     public boolean isAdmin(long telegramUserId) {
         return telegramAdmins.contains(Long.valueOf(telegramUserId));
@@ -187,6 +229,6 @@ public class ModConfig {
     }
 
     public boolean isConfigured() {
-        return botToken != null && !botToken.isEmpty() && chatId != 0L;
+        return botToken == null || botToken.isEmpty() || chatId == 0L;
     }
 }

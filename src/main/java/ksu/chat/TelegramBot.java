@@ -106,7 +106,7 @@ public class TelegramBot {
     }
 
     public void start() {
-        if (!config.isConfigured()) {
+        if (config.isConfigured()) {
             LOGGER.error("[KsuChat] Токен бота или chatId не настроены! Telegram-интеграция отключена.");
             return;
         }
@@ -135,8 +135,8 @@ public class TelegramBot {
     // Отправка в Telegram
     // ------------------------------------------------------------------
 
-    public void sendMessage(final String text) {
-        if (!config.isConfigured() || text == null || text.isEmpty()) {
+    public void sendMessage(String text) {
+        if (config.isConfigured() || text == null || text.isEmpty()) {
             return;
         }
         executor.execute(new Runnable() {

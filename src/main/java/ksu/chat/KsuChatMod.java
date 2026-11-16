@@ -83,6 +83,7 @@ public class KsuChatMod {
         telegramBot.start();
 
         event.registerServerCommand(new CommandKsuPhoto());
+        telegramBot.sendMessage(config.getServerStartMessage());
     }
 
     @Mod.EventHandler
